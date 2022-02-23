@@ -1004,7 +1004,7 @@ PROT_FEATURIZERS = {
     "ProtBert_f": ProtBert_f,
     "ProtBert_DSCRIPT_f": ProtBert_DSCRIPT_f,
     "ProtBert_DSCRIPT_cat_f": ProtBert_DSCRIPT_cat_f,
-    "DPatch_f": DPatch_f,
+    # "DPatch_f": DPatch_f,
 }
 
 def get_dataloaders(train_df,
