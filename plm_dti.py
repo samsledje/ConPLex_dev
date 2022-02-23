@@ -83,7 +83,7 @@ class BeplerBerger_f:
 class ESM_f:
     def __init__(self,
                  pool: bool = True,
-                 dl_path: str = "/afs/csail/u/s/samsl/Work/TorchHub",
+                 dl_path: str = "./models",
                 ):
         super().__init__()
         import esm
@@ -273,7 +273,7 @@ class BeplerBerger_DSCRIPT_f:
             return self._transform(seq)
 
 class ESM_DSCRIPT_f:
-    def __init__(self, pool=True, model_path='/afs/csail/u/s/samsl/Work/DSCRIPT_Dev_and_Testing/ESM_dscript/esm_epoch5_state_dict.pt'):
+    def __init__(self, pool=True, model_path='./models/esm_epoch5_state_dict.pt'):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
@@ -342,7 +342,7 @@ class ESM_DSCRIPT_f:
             return self._transform(seq)
 
 class ProtBert_DSCRIPT_f:
-    def __init__(self, pool=True, model_path='/afs/csail/u/s/samsl/Work/DSCRIPT_Dev_and_Testing/ESM_dscript/protbert_epoch3_state_dict.pt'):
+    def __init__(self, pool=True, model_path='./models/protbert_epoch3_state_dict.pt'):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
@@ -473,7 +473,7 @@ class BeplerBerger_DSCRIPT_cat_f:
             return self._transform(seq)
 
 class ESM_DSCRIPT_cat_f:
-    def __init__(self, pool=True, model_path='/afs/csail/u/s/samsl/Work/DSCRIPT_Dev_and_Testing/ESM_dscript/esm_epoch5_state_dict.pt'):
+    def __init__(self, pool=True, model_path='./models/esm_epoch5_state_dict.pt'):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
@@ -544,7 +544,7 @@ class ESM_DSCRIPT_cat_f:
             return self._transform(seq)
 
 class ProtBert_DSCRIPT_cat_f:
-    def __init__(self, pool=True, model_path='/afs/csail/u/s/samsl/Work/DSCRIPT_Dev_and_Testing/ESM_dscript/protbert_epoch3_state_dict.pt'):
+    def __init__(self, pool=True, model_path='./models/protbert_epoch3_state_dict.pt'):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
