@@ -1,2 +1,10 @@
 .ipynb_checkpoints/
 __pycache__/
+
+# Folders
+best_models/
+models/
+wandb/
+
+# File Types
+**.pk

@@ -29,6 +29,7 @@ parser.add_argument('--exp-id', required=True, help='Experiment ID', dest='exper
 parser.add_argument('--model-type',required=True, default="SimpleCosine", help='Model architecture', dest='model_type')
 parser.add_argument('--mol-feat', required=True, help='Molecule featurizer', dest='mol_feat')
 parser.add_argument('--prot-feat', required=True, help='Molecule featurizer', dest='prot_feat')
+parser.add_argument('--latent-dist', default="Cosine", help='Distance in embedding space to supervise with', dest="latent_dist")
 parser.add_argument('--wandb-proj', required=True, help='Weights and Biases Project', dest='wandb_proj')
 parser.add_argument('-j', '--workers', default=0, type=int, metavar='N',
                     help='number of data loading workers (default: 0)')
@@ -161,7 +162,7 @@ def main():
     config.data.shuffle = True
     config.data.num_workers = args.workers
     config.data.drop_last = True
-    config.data.to_disk_path = args.task
+    config.data.to_disk_path = f"saved_embeddings/{args.task}"
     config.data.device = args.device
 
     dataFolder = get_task(args.task)
@@ -180,6 +181,7 @@ def main():
     )
 
     config.model.mol_emb_size, config.model.prot_emb_size = mol_emb_size, prot_emb_size
+    config.model.distance_metric = args.latent_dist
     model = plm_dti.get_model(**config.model)
     model = model.cuda()
     opt = torch.optim.Adam(model.parameters(), lr=config.training.lr)
@@ -277,7 +279,7 @@ def main():
                 'Testing AUROC: ' + str(test_auc) + ' , AUPRC: ' + str(test_auprc) + ' , F1: ' + str(test_f1) + ' , Test loss: ' + str(
                     test_loss))
             # trained_model_artifact = wandb.Artifact(conf.experiment_id, type="model")
-            torch.save(model_max, f"{config.experiment_id}_best_model.sav")
+            torch.save(model_max, f"best_models/{config.experiment_id}_best_model.sav")
     except:
         print('testing failed')
     return model_max, loss_history

@@ -1,0 +1,1 @@
+python train_plm_dti.py --replicate 0 --wandb-proj DTI_arch_experiments --task davis --model-type CosineBatchNorm --mol-feat Morgan_f --prot-feat Prose_f --exp-id davis_basicbatchnorm_squaredcosine_morgan_prose --latent-dist SquaredCosine
