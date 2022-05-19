@@ -127,6 +127,54 @@ class Morgan_f:
             return self.mol_embs[smile]
         else:
             return self._transform(smile)
+        
+class Morgan_DC_f:
+    def __init__(self,
+                 size=2048,
+                 radius=2,
+                ):
+        import deepchem as dc
+        self._dc_featurizer = dc.feat.CircularFingerprint()
+        self._size = size
+        self.use_cuda = True
+        self.precomputed = False
+
+    def precompute(self, smiles, to_disk_path=None, from_disk=True):
+        print("--- precomputing morgan_DC molecule featurizer ---")
+        assert not self.precomputed
+
+        if from_disk and os.path.exists(f"{to_disk_path}_Morgan_DC_MOLECULES.pk"):
+            print("--- loading from disk ---")
+            self.mol_embs = pk.load(open(f"{to_disk_path}_Morgan_DC_MOLECULES.pk","rb"))
+        else:
+            self.mol_embs = {}
+            for sm in tqdm(smiles):
+                if sm in self.mol_embs:
+                    continue
+                m_emb = self._transform(sm)
+                if len(m_emb) != self._size:
+                    m_emb = torch.zeros(self._size)
+                    if self.use_cuda:
+                        m_emb = m_emb.cuda()
+                self.mol_embs[sm] = m_emb
+            if to_disk_path is not None and not os.path.exists(f"{to_disk_path}_Morgan_DC_MOLECULES.pk"):
+                print(f'--- saving morgans to {f"{to_disk_path}_Morgan_DC_MOLECULES.pk"} ---')
+                pk.dump(self.mol_embs, open(f"{to_disk_path}_Morgan_DC_MOLECULES.pk","wb+"))
+        self.precomputed = True
+
+    @lru_cache(maxsize=5000)
+    def _transform(self, smile):
+        tens = torch.from_numpy(self._dc_featurizer.featurize([smile])).squeeze().float()
+        if self.use_cuda:
+            tens = tens.cuda()
+
+        return tens
+
+    def __call__(self, smile):
+        if self.precomputed:
+            return self.mol_embs[smile]
+        else:
+            return self._transform(smile)
 
 class Mol2Vec_f:
     def __init__(self,
