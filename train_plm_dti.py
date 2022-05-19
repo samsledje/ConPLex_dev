@@ -139,8 +139,7 @@ def main():
     args = parser.parse_args()
     config = plm_dti.get_config(args.experiment_id, args.mol_feat, args.prot_feat)
 
-    print(use_cuda)
-    print(device)
+    print(f"Using CUDA device {device}")
 
     config.task = args.task
     config.replicate = args.replicate

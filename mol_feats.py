@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import dscript
 import os
+import numpy as np
 import pickle as pk
 from types import SimpleNamespace
 from tqdm import tqdm
@@ -11,11 +12,73 @@ from functools import lru_cache
 # from dpatch import PB_Embed
 from torch.nn.utils.rnn import pad_sequence
 
+from rdkit import Chem, DataStructs
+from rdkit.Chem import AllChem
+
 PRECOMPUTED_MOLECULE_PATH = "precomputed_molecules.pk"
+
+#################################
+# Sanity Check Null Featurizers #
+#################################
+
+class Random_f:
+    def __init__(self, size = 1024, pool=True):
+        self.use_cuda = True
+        self._size = size
+
+    def precompute(self, seqs, to_disk_path=True, from_disk=True):
+        pass
+
+    def _transform(self, seq):
+        return torch.rand(self._size).cuda()
+
+    def __call__(self, seq):
+        return self._transform(seq)
+    
+class Null_f:
+    def __init__(self, size = 1024, pool=True):
+        self.use_cuda = True
+        self._size = size
+
+    def precompute(self, seqs, to_disk_path=True, from_disk=True):
+        pass
+
+    def _transform(self, seq):
+        return torch.zeros(self._size).cuda()
+
+    def __call__(self, seq):
+        return self._transform(seq)
 
 #########################
 # Molecular Featurizers #
 #########################
+
+def canonicalize(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is not None:
+        return Chem.MolToSmiles(mol, isomericSmiles=True)
+    else:
+        return None
+
+def smiles2morgan(s, radius = 2, nBits = 2048):
+    """Convert smiles into Morgan Fingerprint. 
+    Args: 
+      smiles: str
+      radius: int (default: 2)
+      nBits: int (default: 1024)
+    Returns:
+      fp: numpy.array
+    """  
+    try:
+        s = canonicalize(s)
+        mol = Chem.MolFromSmiles(s)
+        features_vec = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=nBits)
+        features = np.zeros((1,))
+        DataStructs.ConvertToNumpyArray(features_vec, features)
+    except:
+        print(f'rdkit not found this smiles for morgan: {s} convert to all 0 features')
+        features = np.zeros((nBits, ))
+    return features
 
 class Morgan_f:
     def __init__(self,
@@ -23,7 +86,7 @@ class Morgan_f:
                  radius=2,
                 ):
         import deepchem as dc
-        self._dc_featurizer = dc.feat.CircularFingerprint()
+        self._morgan_featurizer = lambda x: smiles2morgan(x, radius=radius, nBits=size)
         self._size = size
         self.use_cuda = True
         self.precomputed = False
@@ -53,7 +116,7 @@ class Morgan_f:
 
     @lru_cache(maxsize=5000)
     def _transform(self, smile):
-        tens = torch.from_numpy(self._dc_featurizer.featurize([smile])).squeeze().float()
+        tens = torch.from_numpy(self._morgan_featurizer(smile)).squeeze().float()
         if self.use_cuda:
             tens = tens.cuda()
 

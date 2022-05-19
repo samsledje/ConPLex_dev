@@ -5,6 +5,7 @@ __pycache__/
 best_models/
 models/
 wandb/
+nbdata/
 
 # File Types
 **.pk

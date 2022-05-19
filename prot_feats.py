@@ -16,6 +16,10 @@ PRECOMPUTED_PROTEIN_PATH = "precomputed_proteins.pk"
 FILE_DIR = os.path.dirname(os.path.realpath((__file__)))
 MODEL_DIR = f"{FILE_DIR}/models"
 
+#################################
+# Sanity Check Null Featurizers #
+#################################
+
 class Random_f:
     def __init__(self, size = 1024, pool=True):
         self.use_cuda = True
@@ -26,6 +30,20 @@ class Random_f:
 
     def _transform(self, seq):
         return torch.rand(self._size).cuda()
+
+    def __call__(self, seq):
+        return self._transform(seq)
+
+class Null_f:
+    def __init__(self, size = 1024, pool=True):
+        self.use_cuda = True
+        self._size = size
+
+    def precompute(self, seqs, to_disk_path=True, from_disk=True):
+        pass
+
+    def _transform(self, seq):
+        return torch.zeros(self._size).cuda()
 
     def __call__(self, seq):
         return self._transform(seq)
@@ -86,7 +104,7 @@ class BeplerBerger_f:
 try:
     from prose.alphabets import Uniprot21
     from prose.models.multitask import ProSEMT
-    
+
     class Prose_f:
         def __init__(self, pool=True):
             from dscript.language_model import lm_embed
@@ -135,7 +153,7 @@ try:
                 x = x.long().unsqueeze(0)
                 z = self._prose_model.transform(x)
                 z = z.squeeze(0)
-                
+
                 if self.pool:
                     return z.mean(axis=0)
                 else:
@@ -146,10 +164,10 @@ try:
                 return self.prot_embs[seq]
             else:
                 return self._transform(seq)
-            
+
 except (ModuleNotFoundError, ImportError):
     warnings.warn("Prose not installed -- unable to use Prose family of protein featurizers")
-        
+
 class ESM_f:
     def __init__(self,
                  pool: bool = True,
@@ -230,8 +248,8 @@ class ProtBert_f:
         self._max_len = 1024
         self.precomputed = False
 
-        self._protbert_tokenizer = AutoTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False)
-        self._protbert_model = AutoModel.from_pretrained("Rostlab/prot_bert")
+        self._protbert_tokenizer = AutoTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False,cache_dir=f"{MODEL_DIR}/huggingface/transformers")
+        self._protbert_model = AutoModel.from_pretrained("Rostlab/prot_bert",cache_dir=f"{MODEL_DIR}/huggingface/transformers")
         if self.use_cuda:
             self._protbert_feat = pipeline('feature-extraction', model=self._protbert_model, tokenizer=self._protbert_tokenizer,device=0)
         else:
@@ -270,6 +288,82 @@ class ProtBert_f:
         start_Idx = 1
         end_Idx = seq_len+1
         seq_emb = embedding.squeeze()[start_Idx:end_Idx]
+
+        if self.pool:
+            return seq_emb.mean(0)
+        else:
+            return seq_emb
+
+    def __call__(self, seq):
+        if self.precomputed:
+            return self.prot_embs[seq]
+        else:
+            return self._transform(seq)
+
+class ProtT5_XL_Uniref50_f:
+    def __init__(self,
+                 pool: bool = True,
+                ):
+        super().__init__()
+        from transformers import T5Tokenizer, T5EncoderModel
+
+        self.use_cuda = True
+        self.pool = pool
+        self._size = 1024
+        self._max_len = 1024
+        self.precomputed = False
+
+        self._protbert_tokenizer = T5Tokenizer.from_pretrained("Rostlab/prot_t5_xl_uniref50", do_lower_case=False,cache_dir=f"{MODEL_DIR}/huggingface/transformers")
+        self._protbert_model = T5EncoderModel.from_pretrained("Rostlab/prot_t5_xl_uniref50",cache_dir=f"{MODEL_DIR}/huggingface/transformers")
+        if self.use_cuda:
+            self._protbert_model = self._protbert_model.cuda()
+        else:
+            self._protbert_model = self._protbert_model
+
+    def _space_sequence(self, x):
+        return " ".join(list(x))
+
+    def precompute(self, seqs, to_disk_path=True, from_disk=True):
+        print("--- precomputing ProtT5_XL_Uniref50 protein featurizer ---")
+        assert not self.precomputed
+        precompute_path = f"{to_disk_path}_ProtT5_XL_Uniref50_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
+        if from_disk and os.path.exists(precompute_path):
+            print("--- loading from disk ---")
+            self.prot_embs = pk.load(open(precompute_path,"rb"))
+        else:
+            self.prot_embs = {}
+            for sq in tqdm(seqs):
+                if sq in self.prot_embs:
+                    continue
+                self.prot_embs[sq] = self._transform(sq)
+
+            if to_disk_path is not None and not os.path.exists(precompute_path):
+                print(f'--- saving protein embeddings to {precompute_path} ---')
+                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+        self.precomputed = True
+
+    @lru_cache(maxsize=5000)
+    def _transform(self, seq: str):
+        if len(seq) > self._max_len-2:
+            seq = seq[:self._max_len-2]
+
+        ids = self._protbert_tokenizer.batch_encode_plus(self._space_sequence(seq), add_special_tokens=True, padding=True)
+        input_ids = torch.tensor(ids['input_ids'])
+        attention_mask = torch.tensor(ids['attention_mask'])
+
+        if self.use_cuda:
+            input_ids = input_ids.cuda()
+            attention_mask = attention_mask.cuda()
+
+        with torch.no_grad():
+            embedding = self._protbert_model(input_ids=input_ids,attention_mask=attention_mask)
+            embedding = embedding.last_hidden_state
+            # seq_len = (attention_mask[0] == 1).sum()
+            # seq_emb = embedding[0][:seq_len-1]
+            seq_len = len(seq)
+            start_Idx = 1
+            end_Idx = seq_len+1
+            seq_emb = embedding.squeeze()[start_Idx:end_Idx]
 
         if self.pool:
             return seq_emb.mean(0)
