@@ -26,7 +26,7 @@ class Random_f:
         self._size = size
 
     def precompute(self, seqs, to_disk_path=True, from_disk=True):
-        pass
+        self.precomputed = True
 
     def _transform(self, seq):
         return torch.rand(self._size).cuda()
@@ -251,7 +251,7 @@ class ProtBert_f:
         self._protbert_tokenizer = AutoTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False,cache_dir=f"{MODEL_DIR}/huggingface/transformers")
         self._protbert_model = AutoModel.from_pretrained("Rostlab/prot_bert",cache_dir=f"{MODEL_DIR}/huggingface/transformers")
         if self.use_cuda:
-            self._protbert_feat = pipeline('feature-extraction', model=self._protbert_model, tokenizer=self._protbert_tokenizer,device=0)
+            self._protbert_feat = pipeline('feature-extraction', model=self._protbert_model, tokenizer=self._protbert_tokenizer)
         else:
             self._protbert_feat = pipeline('feature-extraction', model=self._protbert_model, tokenizer=self._protbert_tokenizer)
 
@@ -300,21 +300,32 @@ class ProtBert_f:
         else:
             return self._transform(seq)
 
+def get_T5_model():
+    from transformers import T5Tokenizer, T5EncoderModel
+    model = T5EncoderModel.from_pretrained("Rostlab/prot_t5_xl_uniref50",
+                                           cache_dir=f"{MODEL_DIR}/huggingface/transformers"
+                                          )
+    model = model.eval() # set model to evaluation model
+    tokenizer = T5Tokenizer.from_pretrained("Rostlab/prot_t5_xl_uniref50",
+                                            do_lower_case=False,
+                                            cache_dir=f"{MODEL_DIR}/huggingface/transformers"
+                                           ) 
+
+    return model, tokenizer
+        
 class ProtT5_XL_Uniref50_f:
     def __init__(self,
                  pool: bool = True,
                 ):
         super().__init__()
-        from transformers import T5Tokenizer, T5EncoderModel
-
+        
         self.use_cuda = True
         self.pool = pool
         self._size = 1024
         self._max_len = 1024
         self.precomputed = False
-
-        self._protbert_tokenizer = T5Tokenizer.from_pretrained("Rostlab/prot_t5_xl_uniref50", do_lower_case=False,cache_dir=f"{MODEL_DIR}/huggingface/transformers")
-        self._protbert_model = T5EncoderModel.from_pretrained("Rostlab/prot_t5_xl_uniref50",cache_dir=f"{MODEL_DIR}/huggingface/transformers")
+        
+        self._protbert_model, self._protbert_tokenizer = get_T5_model()
         if self.use_cuda:
             self._protbert_model = self._protbert_model.cuda()
         else:
@@ -347,9 +358,12 @@ class ProtT5_XL_Uniref50_f:
         if len(seq) > self._max_len-2:
             seq = seq[:self._max_len-2]
 
-        ids = self._protbert_tokenizer.batch_encode_plus(self._space_sequence(seq), add_special_tokens=True, padding=True)
-        input_ids = torch.tensor(ids['input_ids'])
-        attention_mask = torch.tensor(ids['attention_mask'])
+        token_encoding = self._protbert_tokenizer.batch_encode_plus(self._space_sequence(seq),
+                                                     add_special_tokens=True,
+                                                     padding="longest"
+                                                    )
+        input_ids      = torch.tensor(token_encoding['input_ids'])
+        attention_mask = torch.tensor(token_encoding['attention_mask'])
 
         if self.use_cuda:
             input_ids = input_ids.cuda()
@@ -363,7 +377,7 @@ class ProtT5_XL_Uniref50_f:
             seq_len = len(seq)
             start_Idx = 1
             end_Idx = seq_len+1
-            seq_emb = embedding.squeeze()[start_Idx:end_Idx]
+            seq_emb = embedding[0][start_Idx:end_Idx]
 
         if self.pool:
             return seq_emb.mean(0)

@@ -16,9 +16,6 @@ from argparse import ArgumentParser
 import plm_dti
 import wandb
 
-use_cuda = torch.cuda.is_available()
-device = torch.device("cuda:0" if use_cuda else "cpu")
-
 parser = ArgumentParser(description='PLM_DTI Training.')
 parser.add_argument('-b', '--batch-size', default=16, type=int,
                     metavar='N',
@@ -139,6 +136,10 @@ def main():
     args = parser.parse_args()
     config = plm_dti.get_config(args.experiment_id, args.mol_feat, args.prot_feat)
 
+    device_no = args.device
+    use_cuda = torch.cuda.is_available()
+    device = torch.device(f"cuda:{device_no}" if use_cuda else "cpu")
+    torch.cuda.set_device(device)
     print(f"Using CUDA device {device}")
 
     config.task = args.task
@@ -160,7 +161,7 @@ def main():
     config.data.batch_size = args.batch_size
     config.data.shuffle = True
     config.data.num_workers = args.workers
-    config.data.drop_last = True
+    # config.data.drop_last = True
     config.data.to_disk_path = f"saved_embeddings/{args.task}"
     config.data.device = args.device
 
@@ -181,10 +182,13 @@ def main():
 
     config.model.mol_emb_size, config.model.prot_emb_size = mol_emb_size, prot_emb_size
     config.model.distance_metric = args.latent_dist
+    
+    print('--- getting model ---')
     model = plm_dti.get_model(**config.model)
     model = model.cuda()
     opt = torch.optim.Adam(model.parameters(), lr=config.training.lr)
 
+    print('--- loading wandb ---')
     wandb.init(
         project=args.wandb_proj,
         name=config.experiment_id,

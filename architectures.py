@@ -211,3 +211,36 @@ class SimpleConcat(nn.Module):
     def forward(self, mol_emb, prot_emb):
         cat_emb = torch.cat([mol_emb, prot_emb],axis=1)
         return self.fc3(self.fc2(self.fc1(cat_emb))).squeeze()
+    
+class SeparateConcat(nn.Module):
+    def __init__(self,
+                 mol_emb_size = 2048,
+                 prot_emb_size = 100,
+                 latent_size = 1024,
+                 latent_activation = nn.ReLU,
+                 distance_metric = None
+                ):
+        super().__init__()
+        self.mol_emb_size = mol_emb_size
+        self.prot_emb_size = prot_emb_size
+
+        self.mol_projector = nn.Sequential(
+            nn.Linear(self.mol_emb_size, latent_size),
+            latent_activation()
+        )
+
+        self.prot_projector = nn.Sequential(
+            nn.Linear(self.prot_emb_size, latent_size),
+            latent_activation()
+        )
+        
+        self.fc = nn.Sequential(
+            nn.Linear(2*latent_size, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, mol_emb, prot_emb):
+        mol_proj = self.mol_projector(mol_emb)
+        prot_proj = self.prot_projector(prot_emb)
+        cat_emb = torch.cat([mol_proj, prot_proj],axis=1)
+        return self.fc(cat_emb).squeeze()

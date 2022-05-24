@@ -158,7 +158,6 @@ def get_dataloaders(train_df,
                     prot_feat,
                     pool = True,
                     precompute=True,
-                    drop_last=True,
                     to_disk_path=None,
                     device=0,
                   ):
@@ -203,8 +202,8 @@ def get_config(experiment_id, mol_feat, prot_feat):
         "prot_feat": prot_feat,
     }
     model_cfg = {
-        "latent_size": 1024,
-        "distance_metric": "Cosine"
+        # "latent_size": 1024,
+        # "distance_metric": "Cosine"
     }
     training_cfg = {
         "n_epochs": 50,
