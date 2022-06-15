@@ -13,9 +13,9 @@ from numpy.random import choice
 # from dpatch import PB_Embed
 from torch.nn.utils.rnn import pad_sequence
 
-import architectures as ARCHITECTURES
-import prot_feats as PROT_FEATURIZERS
-import mol_feats as MOL_FEATURIZERS
+from . import architectures as ARCHITECTURES
+from . import prot_feats as PROT_FEATURIZERS
+from . import mol_feats as MOL_FEATURIZERS
 
 # MOL_FEATURIZERS = {
 #     "Morgan_f": Morgan_f,

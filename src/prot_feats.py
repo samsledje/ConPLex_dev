@@ -8,13 +8,11 @@ from types import SimpleNamespace
 from tqdm import tqdm
 from omegaconf import OmegaConf
 from functools import lru_cache
-# from dpatch import PB_Embed
 from torch.nn.utils.rnn import pad_sequence
 import warnings
 
 PRECOMPUTED_PROTEIN_PATH = "precomputed_proteins.pk"
-FILE_DIR = os.path.dirname(os.path.realpath((__file__)))
-MODEL_DIR = f"{FILE_DIR}/models"
+MODEL_DIR = f"/afs/csail.mit.edu/u/s/samsl/Work/Adapting_PLM_DTI/models"
 
 #################################
 # Sanity Check Null Featurizers #

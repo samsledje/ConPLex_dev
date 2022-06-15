@@ -244,3 +244,78 @@ class SeparateConcat(nn.Module):
         prot_proj = self.prot_projector(prot_emb)
         cat_emb = torch.cat([mol_proj, prot_proj],axis=1)
         return self.fc(cat_emb).squeeze()
+    
+class AffinityEmbedConcat(nn.Module):
+    def __init__(self,
+                 mol_emb_size,
+                 prot_emb_size,
+                 latent_size = 1024,
+                 activation = nn.ReLU
+                ):
+        super().__init__()
+        self.mol_emb_size = mol_emb_size
+        self.prot_emb_size = prot_emb_size
+        self.latent_size = latent_size
+
+        self.mol_projector = nn.Sequential(
+            nn.Linear(self.mol_emb_size, latent_size),
+            activation()
+        )
+
+        self.prot_projector = nn.Sequential(
+            nn.Linear(self.prot_emb_size, latent_size),
+            activation()
+        )
+        
+        self.fc = nn.Linear(2*latent_size, 1)
+
+    def forward(self, mol_emb, prot_emb):
+        mol_proj = self.mol_projector(mol_emb)
+        prot_proj = self.prot_projector(prot_emb)
+        cat_emb = torch.cat([mol_proj, prot_proj],axis=1)
+        return self.fc(cat_emb).squeeze()
+    
+SimplePLMModel = AffinityEmbedConcat
+
+class AffinityCoembedInner(nn.Module):
+    def __init__(self,
+                 mol_emb_size,
+                 prot_emb_size,
+                 latent_size = 1024,
+                 activation = nn.ReLU
+                ):
+        super().__init__()
+        self.mol_emb_size = mol_emb_size
+        self.prot_emb_size = prot_emb_size
+        self.latent_size = latent_size
+
+        self.mol_projector = nn.Sequential(
+            nn.Linear(self.mol_emb_size, latent_size),
+            activation()
+        )
+
+        self.prot_projector = nn.Sequential(
+            nn.Linear(self.prot_emb_size, latent_size),
+            activation()
+        )
+
+    def forward(self, mol_emb, prot_emb):
+        mol_proj = self.mol_projector(mol_emb)
+        prot_proj = self.prot_projector(prot_emb)
+        return torch.bmm(mol_proj.view(-1,1,self.latent_size), prot_proj.view(-1,self.latent_size,1)).squeeze()
+        # return torch.inner(mol_proj, prot_proj).squeeze()
+    
+    
+class AffinityConcatLinear(nn.Module):
+    def __init__(self,
+                 mol_emb_size,
+                 prot_emb_size,
+                ):
+        super().__init__()
+        self.mol_emb_size = mol_emb_size
+        self.prot_emb_size = prot_emb_size
+        self.fc = nn.Linear(mol_emb_size + prot_emb_size, 1)
+
+    def forward(self, mol_emb, prot_emb):
+        cat_emb = torch.cat([mol_emb, prot_emb],axis=1)
+        return self.fc(cat_emb).squeeze()

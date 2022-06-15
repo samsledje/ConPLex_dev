@@ -16,16 +16,36 @@ from torch.utils.data import DataLoader
 from argparse import ArgumentParser
 from omegaconf import OmegaConf
 
+BASE_DIR = "."
+MODEL_BASE_DIR = f"{BASE_DIR}/best_models"
+DATA_DIR = f"{BASE_DIR}/nbdata"
+LOG_DIR = f"{BASE_DIR}/logs"
+os.makedirs(MODEL_BASE_DIR,exist_ok=True)
+os.makedirs(DATA_DIR,exist_ok=True)
+os.makedirs(LOG_DIR,exist_ok=True)
+sys.path.append(BASE_DIR)
+
+def log(m, file=None, timestamped=True, print_also=True):
+    curr_time = f"[{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}] "
+    log_string = f"{curr_time if timestamped else ''}{m}"
+    if file is None:
+        print(log_string,file=sys.stderr)
+    else:
+        print(log_string, file=file)
+        if print_also:
+            print(log_string, file=sys.stderr)
+
 ### Parse Arguments
 parser = ArgumentParser(description='DTI_DG Benchmarking.')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     metavar='N',
-                    help='mini-batch size (default: 16), this is the total '
+                    help='mini-batch size (default: 32), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--exp-id', required=True, help='Experiment ID', dest='experiment_id')
 # parser.add_argument('--model-type',required=True, default="SimplePLMModel", help='Model architecture', dest='model_type')
 parser.add_argument('--linear', action='store_true', help='Use a linear model')
+parser.add_argument('--coembed', action='store_true', help='Use a coembedding/inner product model')
 parser.add_argument('--mol-feat', required=True, help='Molecule featurizer', dest='mol_feat')
 parser.add_argument('--prot-feat', required=True, help='Molecule featurizer', dest='prot_feat')
 parser.add_argument('--wandb-proj', required=True, help='Weights and Biases Project', dest='wandb_proj')
@@ -39,25 +59,10 @@ parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float,
 parser.add_argument('--d', '--device', default=0, type=int, help='CUDA device', dest='device')
 
 args = parser.parse_args()
+if args.linear and args.coembed:
+    log('WARNING: --coembed and --linear both set; --linear will be ignored')
 device = torch.cuda.set_device(args.device)
-outfile = open(f'{args.experiment_id}_log.txt','w+')
-
-BASE_DIR = "."
-MODEL_BASE_DIR = f"{BASE_DIR}/best_models"
-DATA_DIR = f"{BASE_DIR}/nbdata"
-os.makedirs(MODEL_BASE_DIR,exist_ok=True)
-os.makedirs(DATA_DIR,exist_ok=True)
-sys.path.append(BASE_DIR)
-
-def log(m, file=None, timestamped=True, print_also=True):
-    curr_time = f"[{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}] "
-    log_string = f"{curr_time if timestamped else ''}{m}"
-    if file is None:
-        print(log_string,file=sys.stderr)
-    else:
-        print(log_string, file=file)
-        if print_also:
-            print(log_string, file=sys.stderr)
+outfile = open(f'{LOG_DIR}/{args.experiment_id}_log.txt','w+')
             
 def flatten(d):
     d_ = {}
@@ -86,8 +91,9 @@ all_drugs = pd.concat([train_val,test]).Drug.values
 all_proteins = pd.concat([train_val,test]).Target.values
 
 ### Pre-compute drug and protein representations
-import mol_feats as MOL_FEATS
-import prot_feats as PROT_FEATS
+import src.mol_feats as MOL_FEATS
+import src.prot_feats as PROT_FEATS
+import src.architectures as ARCHITECTURES
 to_disk_path = f"{DATA_DIR}/tdc_bindingdb_patent_train"
 
 # mol_featurizer = Morgan_DC_f()
@@ -100,50 +106,6 @@ prot_featurizer.precompute(all_proteins,to_disk_path=to_disk_path,from_disk=True
 
 log(f'Using {type(mol_featurizer)} for molecule features',file=outfile)
 log(f'Using {type(prot_featurizer)} for protein features',file=outfile)
-
-### Define model architecture
-class SimplePLMModel(nn.Module):
-    def __init__(self,
-                 mol_emb_size = mol_featurizer._size,
-                 prot_emb_size = prot_featurizer._size,
-                 hidden_dim = 256,
-                 activation = nn.ReLU
-                ):
-        super().__init__()
-        self.mol_emb_size = mol_emb_size
-        self.prot_emb_size = prot_emb_size
-
-        self.mol_projector = nn.Sequential(
-            nn.Linear(self.mol_emb_size, hidden_dim),
-            activation()
-        )
-
-        self.prot_projector = nn.Sequential(
-            nn.Linear(self.prot_emb_size, hidden_dim),
-            activation()
-        )
-        
-        self.fc = nn.Linear(2*hidden_dim, 1)
-
-    def forward(self, mol_emb, prot_emb):
-        mol_proj = self.mol_projector(mol_emb)
-        prot_proj = self.prot_projector(prot_emb)
-        cat_emb = torch.cat([mol_proj, prot_proj],axis=1)
-        return self.fc(cat_emb).squeeze()
-    
-class LinearPLMModel(nn.Module):
-    def __init__(self,
-                 mol_emb_size = mol_featurizer._size,
-                 prot_emb_size = prot_featurizer._size,
-                ):
-        super().__init__()
-        self.mol_emb_size = mol_emb_size
-        self.prot_emb_size = prot_emb_size
-        self.fc = nn.Linear(mol_emb_size + prot_emb_size, 1)
-
-    def forward(self, mol_emb, prot_emb):
-        cat_emb = torch.cat([mol_emb, prot_emb],axis=1)
-        return self.fc(cat_emb).squeeze()
 
 ### Define data loaders
 import wandb
@@ -211,13 +173,14 @@ for seed in range(5):
     # early stopping
     max_pcc = 0
 
-    if not args.linear:
-        model = SimplePLMModel(mol_featurizer._size, prot_featurizer._size).cuda()
+    if args.coembed:
+        model = getattr(ARCHITECTURES, "AffinityCoembedInner")(mol_featurizer._size, prot_featurizer._size).cuda()
+    elif args.linear:
+        model = getattr(ARCHITECTURES, "AffinityConcatLinear")(mol_featurizer._size, prot_featurizer._size).cuda()
     else:
-        model = LinearPLMModel(mol_featurizer._size, prot_featurizer._size).cuda()
+        model = getattr(ARCHITECTURES, "AffinityEmbedConcat")(mol_featurizer._size, prot_featurizer._size).cuda()
     log(f'Using model type {type(model)}',file=outfile)
     log(str(model),file=outfile)
-    # model = LinearPLMModel().cuda()
     torch.backends.cudnn.benchmark = True
     n_epo = args.epochs
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)

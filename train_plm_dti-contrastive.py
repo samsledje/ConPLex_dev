@@ -39,6 +39,8 @@ parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
                     metavar='LR', help='initial learning rate (default: 1e-4)', dest='lr')
 parser.add_argument('--r', '--replicate', default=0, type=int, help='Replicate', dest='replicate')
 parser.add_argument('--d', '--device', default=0, type=int, help='CUDA device', dest='device')
+parser.add_argument('--no-contrast', action='store_true')
+parser.add_argument('--no-bce',action='store_true')
 parser.add_argument('--checkpoint', default=None, help='Model weights to start from')
 
 def flatten(d):
@@ -132,6 +134,10 @@ def test(data_generator, model):
     return roc_auc_score(y_label, y_pred), average_precision_score(y_label, y_pred), f1_score(y_label,
                                                                                               y_pred_s), accuracy1, sensitivity1, specificity1, y_pred, loss.item()
 
+def sigmoid_cosine_distance_p(x,y,p=1):
+    sig = torch.nn.Sigmoid()
+    cosine_sim = torch.nn.CosineSimilarity()
+    return (1 - sig(cosine_sim(x,y)))**p
 
 def main():
     args = parser.parse_args()
@@ -157,6 +163,7 @@ def main():
     config.data.batch_size = args.batch_size
 
     loss_history = []
+    closs_history = []
 
     print('--- Data Preparation ---')
     config.data.batch_size = args.batch_size
@@ -174,7 +181,7 @@ def main():
     df_test = pd.read_csv(dataFolder + '/test.csv',header=0,index_col=0)
 
     print('--- loading dataloaders ---')
-    training_generator, validation_generator, testing_generator, mol_emb_size, prot_emb_size = plm_dti.get_dataloaders(
+    training_generator, contrastive_generator, validation_generator, testing_generator, mol_emb_size, prot_emb_size = plm_dti.get_dataloaders_contrastive(
         df_train,
         df_val,
         df_test,
@@ -191,6 +198,7 @@ def main():
         model = torch.load(args.checkpoint)
     model = model.cuda()
     opt = torch.optim.Adam(model.parameters(), lr=config.training.lr)
+    opt_contrastive = torch.optim.Adam(model.parameters(), lr=config.training.lr/float(10))
 
     print('--- loading wandb ---')
     wandb.init(
@@ -205,45 +213,64 @@ def main():
     max_auprc = 0
     model_max = copy.deepcopy(model)
 
-    # with torch.set_grad_enabled(False):
-    #     auc, auprc, f1, logits, loss = test(testing_generator, model_max)
-    #     # wandb.log({"test/loss": loss, "epoch": 0,
-    #     #            "test/auc": float(auc),
-    #     #            "test/aupr": float(auprc),
-    #     #            "test/f1": float(f1),
-    #     #           })
-    #     print('Initial Testing AUROC: ' + str(auc) + ' , AUPRC: ' + str(auprc) + ' , F1: ' + str(
-    #         f1) + ' , Test loss: ' + str(loss))
-
     print('--- Go for Training ---')
     torch.backends.cudnn.benchmark = True
     tg_len = len(training_generator)
+    cg_len = len(contrastive_generator)
     start_time = time()
     for epo in range(config.training.n_epochs):
         model.train()
         epoch_time_start = time()
-        for i, (d, p, label) in enumerate(training_generator):
-            score = model(d.cuda(), p.cuda())
+        if not args.no_bce:
+            for i, (d, p, label) in enumerate(training_generator):
+                score = model(d.cuda(), p.cuda())
 
-            label = Variable(torch.from_numpy(np.array(label)).float()).cuda()
+                label = Variable(torch.from_numpy(np.array(label)).float()).cuda()
 
-            loss_fct = torch.nn.BCELoss()
-            m = torch.nn.Sigmoid()
-            n = torch.squeeze(m(score))
+                loss_fct = torch.nn.BCELoss()
+                m = torch.nn.Sigmoid()
+                n = torch.squeeze(m(score))
 
-            loss = loss_fct(n, label)
-            loss_history.append(loss)
-            wandb.log({"train/loss": loss, "epoch": epo,
-                       "step": epo*tg_len*args.batch_size + i*args.batch_size
-                  })
+                loss = loss_fct(n, label)
+                loss_history.append(loss)
+                wandb.log({"train/loss": loss, "epoch": epo,
+                           "step": epo*tg_len*args.batch_size + i*args.batch_size
+                      })
 
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
 
-            if (i % 1000 == 0):
-                print('Training at Epoch ' + str(epo + 1) + ' iteration ' + str(i) + ' with loss ' + str(
-                    loss.cpu().detach().numpy()))
+                if (i % 1000 == 0):
+                    print('Training at Epoch ' + str(epo + 1) + ' iteration ' + str(i) + ' with loss ' + str(
+                        loss.cpu().detach().numpy()))
+
+
+        if not args.no_contrast:
+            for i, (anch_e, pos_e, neg_e) in enumerate(contrastive_generator):      
+                anchor_proj = model.prot_projector(anch_e.cuda())
+                pos_proj = model.mol_projector(pos_e.cuda())
+                neg_proj = model.mol_projector(neg_e.cuda())
+
+                contrastive_loss = torch.nn.TripletMarginWithDistanceLoss(
+                    distance_function=sigmoid_cosine_distance_p,
+                    margin=0.5,
+                )
+
+                c_loss = contrastive_loss(anchor_proj, pos_proj, neg_proj)
+
+                closs_history.append(c_loss)
+                wandb.log({"train/c_loss": c_loss, "epoch": epo,
+                           "c_step": epo*cg_len*args.batch_size + i*args.batch_size
+                      })
+
+                opt_contrastive.zero_grad()
+                c_loss.backward()
+                opt_contrastive.step()
+
+                if (i % 1000 == 0):
+                    print('Training (contrastive) at Epoch ' + str(epo + 1) + ' iteration ' + str(i) + ' with loss ' + str(
+                        c_loss.cpu().detach().numpy()))
 
         epoch_time_end = time()
         if epo % config.training.every_n_val == 0:

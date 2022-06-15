@@ -9,13 +9,16 @@ from types import SimpleNamespace
 from tqdm import tqdm
 from omegaconf import OmegaConf
 from functools import lru_cache
-# from dpatch import PB_Embed
 from torch.nn.utils.rnn import pad_sequence
+from models.molR_featurize import MolEFeaturizer, GraphDataset
 
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 
 PRECOMPUTED_MOLECULE_PATH = "precomputed_molecules.pk"
+
+def canonicalize(smile):
+    return Chem.MolToSmiles(Chem.MolFromSmiles(smile),isomericSmiles=False)
 
 #################################
 # Sanity Check Null Featurizers #
@@ -215,6 +218,59 @@ class Mol2Vec_f:
         if self.use_cuda:
             tens = tens.cuda()
 
+        return tens
+
+    def __call__(self, smile):
+        if self.precomputed:
+            return self.mol_embs[smile]
+        else:
+            return self._transform(smile)
+        
+class MolR_f:
+    def __init__(self,
+                 path_to_model='models/molr_saved/gcn_1024',
+                ):
+        self.path_to_model = path_to_model
+        self._molE_featurizer = MolEFeaturizer(path_to_model=self.path_to_model)
+        self._size = 1024
+        self.use_cuda = True
+        self.gpu = 0
+        self.precomputed = False
+
+    def precompute(self, smiles, to_disk_path=None, from_disk=True):
+        print("--- precomputing molR molecule featurizer ---")
+        assert not self.precomputed
+
+        if from_disk and os.path.exists(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"):
+            print("--- loading from disk ---")
+            self.mol_embs = pk.load(open(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk","rb"))
+        else:
+            self.graphDataSet = GraphDataset(self.path_to_model, smiles, self.gpu)
+            self.mol_embs = {}
+            for sm in tqdm(smiles):
+                if sm in self.mol_embs:
+                    continue
+                m_emb = self._transform(sm)
+                if len(m_emb) != self._size:
+                    m_emb = torch.zeros(self._size)
+                    if self.use_cuda:
+                        m_emb = m_emb.cuda()
+                self.mol_embs[sm] = m_emb
+            if to_disk_path is not None and not os.path.exists(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"):
+                print(f'--- saving embeddings to {f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"} ---')
+                pk.dump(self.mol_embs, open(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk","wb+"))
+        self.precomputed = True
+
+    @lru_cache(maxsize=5000)
+    def _transform(self, smile):
+        smile = canonicalize(smile)
+        if self.precomputed:
+            embeddings, _ = self._molE_featurizer.transform(smile,data=self.graphDataSet)
+        else:
+            embeddings, _ = self._molE_featurizer.transform(smile)
+        tens = torch.from_numpy(embeddings).squeeze().float()
+        if self.use_cuda:
+            tens = tens.cuda()
         return tens
 
     def __call__(self, smile):
