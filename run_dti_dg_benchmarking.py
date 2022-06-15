@@ -310,6 +310,7 @@ for seed in range(5):
     pcc_seed[seed] = out
     log(f'{seed}: PCC={out[name]["pcc"]}',file=outfile)
     wandb.log({"test/pcc": out[name]["pcc"]})
+    wandb.finish()
 
 log(f'Average PCC: {sum([pcc_seed[s][name]["pcc"] for s in range(5)])/5}',file=outfile)
 
