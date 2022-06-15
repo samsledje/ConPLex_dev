@@ -113,7 +113,7 @@ import copy
 from torch.autograd import Variable
 from time import time
 from scipy.stats import pearsonr
-from plm_dti import DTIDataset, molecule_protein_collate_fn
+from src.plm_dti import DTIDataset, molecule_protein_collate_fn
 
 test_dataset = DTIDataset(
         test.Drug,

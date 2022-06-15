@@ -185,7 +185,6 @@ def make_contrastive(df,
     neg_df = df[df[label_col] == 0]
     
     contrastive = []
-    n_neg_per = 10
 
     for _,r in pos_df.iterrows():
         for _ in range(n_neg_per):
@@ -193,6 +192,49 @@ def make_contrastive(df,
 
     contrastive = pd.DataFrame(contrastive,columns=['Anchor','Positive','Negative'])
     return contrastive
+
+def get_dataloaders_dude(train_set,
+                         batch_size,
+                         shuffle,
+                         num_workers,
+                         mol_feat,
+                         prot_feat,
+                         pool = True,
+                         precompute = True,
+                         to_disk_path=None,
+                         device=0,
+                         n_neg_per = 50
+                        ):
+    
+    full_dude = pd.read_csv('./dataset/DUDe/full.tsv',sep='\t')
+    train_dude = full_dude[full_dude.Target_ID.isin(train_set)]
+    contrastive_dude = make_contrastive(train_dude,
+                                        mol_col = 'Molecule_SMILES',
+                                        prot_col = 'Target_Seq',
+                                        label_col = 'Label',
+                                        n_neg_per = n_neg_per)
+    
+    all_smiles = list(train_dude.Molecule_SMILES.unique())
+    all_sequences = list(train_dude.Target_Seq.unique())
+    try:
+        mol_feats = getattr(MOL_FEATURIZERS, mol_feat)()
+    except AttributeError:
+        raise ValueError(f"Specified molecule featurizer {mol_feat} is not supported")
+    try:
+        prot_feats = getattr(PROT_FEATURIZERS, prot_feat)(pool=pool)
+    except AttributeError:
+        raise ValueError(f"Specified protein featurizer {prot_feat} is not supported")
+    if precompute:
+        mol_feats.precompute(all_smiles,to_disk_path=to_disk_path,from_disk=True)
+        prot_feats.precompute(all_sequences,to_disk_path=to_disk_path,from_disk=True)
+    
+    contrastive_dset = ContrastiveDataset(contrastive_dude, mol_feats, prot_feats)
+    contrastive_dataloader = DataLoader(contrastive_dset,
+                                batch_size=batch_size,shuffle=shuffle,
+                                num_workers=num_workers,collate_fn=lambda x: molecule_protein_collate_fn(x, pad=not pool)
+                               )
+    return contrastive_dataloader
+    
 
 
 def get_dataloaders_contrastive(train_df,

@@ -58,9 +58,9 @@ structure = parser.get_structure(target, f'{database_path}/{target}/receptor.pdb
 seq = list(AtomIterator(target, structure))[0]
 
 # Load Model
-from architectures import SimplePLMModel, SimpleCosine
-from mol_feats import Morgan_f
-from prot_feats import ProtBert_f
+from src.architectures import SimplePLMModel, SimpleCosine
+from src.mol_feats import Morgan_f
+from src.prot_feats import ProtBert_f
 mol_f = Morgan_f()
 prot_f = ProtBert_f()
 model = torch.load(model_path).cuda()

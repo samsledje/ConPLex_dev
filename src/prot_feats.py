@@ -46,6 +46,50 @@ class Null_f:
     def __call__(self, seq):
         return self._transform(seq)
 
+class Base_f:
+    def __init__(self):
+        self.precomputed = False
+        self.name = None
+        self.use_cuda = True
+        raise NotImplementedError("should be implemented in subclass")
+        
+        
+    def precompute(self, seqs, to_disk_path=True, from_disk=True):
+        print(f"--- precomputing {self.name} featurizer ---")
+        assert not self.precomputed
+        self.precompute_path = f"{to_disk_path}_{self.name}.pk"
+        if from_disk and os.path.exists(self.precompute_path):
+            print("--- loading from disk ---")
+            cpu_embs = pk.load(open(self.precompute_path,"rb"))
+            if not self.use_cuda:
+                self.embs = cpu_embs
+            else:
+                self.embs = {k: v.cuda() for k,v in cpu_embs.items()}
+        else:
+            self.embs = {}
+            for sq in tqdm(seqs):
+                if sq in self.embs:
+                    continue
+                self.embs[sq] = self._transform(sq)
+
+            if to_disk_path is not None and not os.path.exists(self.precompute_path):
+                print(f'--- saving protein embeddings to {self.precompute_path} ---')
+                cpu_embs = {k: v.cpu() for k,v in self.embs.items()}
+                pk.dump(cpu_embs, open(self.precompute_path,"wb+"))
+        self.precomputed = True
+        
+    @lru_cache(maxsize=5000)
+    def _transform(self, x):
+        raise NotImplementedError("should be implemented in subclass")
+            
+    def __call__(self, seq):
+        if self.precomputed:
+            return self.prot_embs[seq]
+        else:
+            return self._transform(seq)
+        
+    
+    
 ####################################
 # Language Model Alone Featurizers #
 ####################################
