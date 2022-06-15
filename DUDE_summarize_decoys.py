@@ -18,7 +18,7 @@ target_types = pd.read_csv('nbdata/dude_subset_list.txt',names=['Target','Subset
 mrg = pd.merge(pvals, target_types, left_on='Target', right_on='Target', how='left')
 mrg = mrg.fillna('None')
 mrg = mrg.sort_values(by=['Subset','Target','Model'])
-with pd.option_context('display.max_rows',None):
+with pd.option_context('display.max_rows',None, 'display.max_columns', None, 'display.width', None):
     print(mrg)
 
 summary = pd.concat([
