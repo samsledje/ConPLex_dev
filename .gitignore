@@ -10,3 +10,6 @@ logs/
 
 # File Types
 **.pk
+
+# Large files
+dataset/DUDe/full.tsv
