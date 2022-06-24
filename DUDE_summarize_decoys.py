@@ -1,6 +1,8 @@
 import sys
 import glob
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 directory = sys.argv[1]
 
@@ -20,6 +22,7 @@ mrg = mrg.fillna('None')
 mrg = mrg.sort_values(by=['Subset','Target','Model'])
 with pd.option_context('display.max_rows',None, 'display.max_columns', None, 'display.width', None):
     print(mrg)
+mrg.to_csv(f'{directory}/all_results.csv',index=False)
 
 summary = pd.concat([
     mrg.groupby('Subset')['PVal'].count(),
@@ -27,3 +30,8 @@ summary = pd.concat([
 ],axis=1)
 summary.columns = ['Count','Mean PVal']
 print(summary)
+summary.to_csv(f'{directory}/summary_results.csv',index=False)
+
+sns.swarmplot(data=mrg,x='Subset',y='PVal')
+plt.title(directory)
+plt.savefig(f'{directory}/swarmplot.png',bbox_inches='tight')

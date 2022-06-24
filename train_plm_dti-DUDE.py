@@ -193,7 +193,7 @@ def main():
         **config.data
     )
     
-    dude_subtypes = pd.read_csv(f'./nbdata/dude_{args.dude_train}_type_train_test_split.csv',header=None)
+    dude_subtypes = pd.read_csv(f'./dataset/DUDe/dude_{args.dude_train}_type_train_test_split.csv',header=None)
     dude_train_list = dude_subtypes[dude_subtypes[1] == 'train'][0].values
     contrastive_generator = plm_dti.get_dataloaders_dude(
         dude_train_list,
@@ -231,14 +231,18 @@ def main():
     # early stopping
     max_auc = 0
     max_auprc = 0
+    best_epoch = 0
     model_max = copy.deepcopy(model)
+    progressive_margin = 0
 
     print('--- Go for Training ---')
     torch.backends.cudnn.benchmark = True
     tg_len = len(training_generator)
     cg_len = len(contrastive_generator)
     start_time = time()
+    
     for epo in range(config.training.n_epochs):
+        wandb.log({"train/triplet_margin": progressive_margin, "epoch": epo,})
         model.train()
         epoch_time_start = time()
         if not args.no_bce:
@@ -274,7 +278,7 @@ def main():
 
                 contrastive_loss = torch.nn.TripletMarginWithDistanceLoss(
                     distance_function=sigmoid_cosine_distance_p,
-                    margin=0.5,
+                    margin=progressive_margin,
                 )
 
                 c_loss = contrastive_loss(anchor_proj, pos_proj, neg_proj)
@@ -291,8 +295,11 @@ def main():
                 if (i % 1000 == 0):
                     print('Training (contrastive) at Epoch ' + str(epo + 1) + ' iteration ' + str(i) + ' with loss ' + str(
                         c_loss.cpu().detach().numpy()))
+            progressive_margin = min(0.5, progressive_margin + (0.5/config.training.n_epochs))
 
         epoch_time_end = time()
+        print(f'Adjusting triplet distance margin to {progressive_margin}')
+        
         if epo % config.training.every_n_val == 0:
             with torch.set_grad_enabled(False):
                 val_auc, val_auprc, val_f1, val_accuracy, val_sensitivity, val_specificity, val_logits, val_loss = test(validation_generator, model)
@@ -307,7 +314,8 @@ def main():
                   })
                 if val_auprc > max_auprc:
                     model_max = copy.deepcopy(model)
-                    torch.save(model_max, f"best_models/{config.experiment_id}_best_model.sav")
+                    torch.save(model_max, f"best_models/{config.experiment_id}_best_model_epoch{epo}.sav")
+                    best_epoch = epo
                     max_auprc = val_auprc
                 print('Validation at Epoch ' + str(epo + 1) + ' , AUROC: ' + str(val_auc) + ' , AUPRC: ' + str(
                     val_auprc) + ' , F1: ' + str(val_f1))
@@ -328,15 +336,17 @@ def main():
                        "test/sens": float(test_sensitivity),
                        "test/spec": float(test_specificity),
                        "test/eval_time": (test_end_time - test_start_time),
-                       "Charts/wall_clock_time": (end_time - start_time)
+                       "Charts/wall_clock_time": (end_time - start_time),
+                       "Charts/best_epoch": best_epoch
             })
             print(
                 'Testing AUROC: ' + str(test_auc) + ' , AUPRC: ' + str(test_auprc) + ' , F1: ' + str(test_f1) + ' , Test loss: ' + str(
                     test_loss))
-            # trained_model_artifact = wandb.Artifact(conf.experiment_id, type="model")
+            print(f'Best model is from epoch {best_epoch}')
             torch.save(model_max, f"best_models/{config.experiment_id}_best_model.sav")
     except:
         print('testing failed')
+    torch.save(model, f"best_models/{config.experiment_id}_last_model.sav")
     return model_max, loss_history
 
 

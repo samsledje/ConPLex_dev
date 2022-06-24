@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import dscript
 import os
+import sys
 import pickle as pk
 from types import SimpleNamespace
 from tqdm import tqdm
@@ -431,6 +432,67 @@ class ProtT5_XL_Uniref50_f:
             return self.prot_embs[seq]
         else:
             return self._transform(seq)
+        
+class BindPredict21_f:
+    def __init__(self, pool=False):
+        BINDPREDICT_DIR = '/afs/csail.mit.edu/u/s/samsl/Work/Applications/bindPredict'
+        model_prefix = f'{BINDPREDICT_DIR}/trained_models/checkpoint'
+        sys.path.append(BINDPREDICT_DIR)
+        from architectures import CNN2Layers
+        
+        self.use_cuda = True
+        self.pool = pool
+        self._size = 128
+        self._max_len = 1024
+        self.precomputed = False
+        
+        self._p5tf = ProtT5_XL_Uniref50_f(pool=False)
+        self._md = CNN2Layers(1024,128,5,1,2,0)
+        self._md.load_state_dict(torch.load(f"{model_prefix}5.pt", map_location='cuda:1')['state_dict'])
+        self._md = self._md.cuda()
+        self._md = self._md.eval()
+        self._cnn_first = self._md.conv1[:2]
+        self._embed = self._seq_2_bindPredict_embedding
+        
+    def _seq_2_bindPredict_embedding(self,seq,use_cuda=True):
+        with torch.set_grad_enabled(False):
+            protbert_e = self._p5tf(seq)
+            bindpredict_e = self._cnn_first(protbert_e.view(1,1024,-1))
+            return bindpredict_e.mean(axis=2).squeeze()
+
+    def precompute(self, seqs, to_disk_path=True, from_disk=True):
+        print("--- precomputing BindPredict21 protein featurizer ---")
+        assert not self.precomputed
+        precompute_path = f"{to_disk_path}_BindPredict21_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
+        if from_disk and os.path.exists(precompute_path):
+            print("--- loading from disk ---")
+            self.prot_embs = pk.load(open(precompute_path,"rb"))
+        else:
+            self.prot_embs = {}
+            for sq in tqdm(seqs):
+                if sq in self.prot_embs:
+                    continue
+                self.prot_embs[sq] = self._transform(sq)
+
+            if to_disk_path is not None and not os.path.exists(precompute_path):
+                print(f'--- saving protein embeddings to {precompute_path} ---')
+                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+        self.precomputed = True
+
+    @lru_cache(maxsize=5000)
+    def _transform(self, seq):
+        if len(seq) > self._max_len:
+            seq = seq[:self._max_len]
+
+        with torch.no_grad():
+            lm_emb = self._embed(seq, use_cuda=self.use_cuda)
+            return lm_emb.squeeze()
+
+    def __call__(self, seq):
+        if self.precomputed:
+            return self.prot_embs[seq]
+        else:
+            return self._transform(seq)
 
 ####################################
 # PLM --> D-SCRIPT 100 Featurizers #
@@ -562,7 +624,7 @@ class ESM_DSCRIPT_f:
             return self._transform(seq)
 
 class ProtBert_DSCRIPT_f:
-    def __init__(self, pool=True, model_path=f"{MODEL_DIR}/protbert_epoch3_state_dict.pt"):
+    def __init__(self, pool=False, model_path=f"{MODEL_DIR}/protbert_epoch3_state_dict.pt"):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
