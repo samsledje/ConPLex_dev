@@ -5,6 +5,7 @@ import dscript
 import os
 import pickle as pk
 import pandas as pd
+
 from types import SimpleNamespace
 from tqdm import tqdm
 from omegaconf import OmegaConf
@@ -12,13 +13,10 @@ from functools import lru_cache
 from numpy.random import choice
 from torch.nn.utils.rnn import pad_sequence
 
+
 from . import architecture as dti_architecture
 from . import protein as protein_features
 from . import molecule as molecule_features
-
-##################
-# Data Set Utils #
-##################
 
 def molecule_protein_collate_fn(args, pad=False):
     """
@@ -39,6 +37,8 @@ def molecule_protein_collate_fn(args, pad=False):
     affinities = torch.stack(labs, 0)
 
     return molecules, proteins, affinities
+
+class 
 
 class DTIDataset(Dataset):
     def __init__(self,smiles, sequences, labels, mfeats, pfeats):
@@ -90,10 +90,6 @@ class ContrastiveDataset(Dataset):
 
         return anchorEmb, positiveEmb, negativeEmb
 
-#################
-# API Functions #
-#################
-
 def make_contrastive(df,
                      mol_col = 'SMILES',
                      prot_col = 'Target Sequence',
@@ -136,11 +132,11 @@ def get_dataloaders_dude(train_set,
     all_smiles = list(train_dude.Molecule_SMILES.unique())
     all_sequences = list(train_dude.Target_Seq.unique())
     try:
-        mol_feats = getattr(molecule_features, mol_feat)()
+        mol_feats = getattr(MOL_FEATURIZERS, mol_feat)()
     except AttributeError:
         raise ValueError(f"Specified molecule featurizer {mol_feat} is not supported")
     try:
-        prot_feats = getattr(protein_features, prot_feat)(pool=pool)
+        prot_feats = getattr(PROT_FEATURIZERS, prot_feat)(pool=pool)
     except AttributeError:
         raise ValueError(f"Specified protein featurizer {prot_feat} is not supported")
     if precompute:
@@ -180,11 +176,11 @@ def get_dataloaders_contrastive(train_df,
         df_values[set_name] = (df["SMILES"], df["Target Sequence"], df["Label"])
 
     try:
-        mol_feats = getattr(molecule_features, mol_feat)()
+        mol_feats = getattr(MOL_FEATURIZERS, mol_feat)()
     except AttributeError:
         raise ValueError(f"Specified molecule featurizer {mol_feat} is not supported")
     try:
-        prot_feats = getattr(protein_features, prot_feat)(pool=pool)
+        prot_feats = getattr(PROT_FEATURIZERS, prot_feat)(pool=pool)
     except AttributeError:
         raise ValueError(f"Specified protein featurizer {prot_feat} is not supported")
     if precompute:
@@ -236,11 +232,11 @@ def get_dataloaders(train_df,
         df_values[set_name] = (df["SMILES"], df["Target Sequence"], df["Label"])
 
     try:
-        mol_feats = getattr(molecule_features, mol_feat)()
+        mol_feats = getattr(MOL_FEATURIZERS, mol_feat)()
     except AttributeError:
         raise ValueError(f"Specified molecule featurizer {mol_feat} is not supported")
     try:
-        prot_feats = getattr(protein_features, prot_feat)(pool=pool)
+        prot_feats = getattr(PROT_FEATURIZERS, prot_feat)(pool=pool)
     except AttributeError:
         raise ValueError(f"Specified protein featurizer {prot_feat} is not supported")
     if precompute:
@@ -256,37 +252,3 @@ def get_dataloaders(train_df,
         loaders[set_name] = dataloader
 
     return tuple([loaders["train"], loaders["val"], loaders["test"], mol_feats._size, prot_feats._size])
-
-def get_config(experiment_id, mol_feat, prot_feat):
-    data_cfg = {
-        "batch_size":32,
-        "num_workers":0,
-        "precompute":True,
-        "mol_feat": mol_feat,
-        "prot_feat": prot_feat,
-    }
-    model_cfg = {
-        # "latent_size": 1024,
-        # "distance_metric": "Cosine"
-    }
-    training_cfg = {
-        "n_epochs": 50,
-        "every_n_val": 1,
-    }
-    cfg = {
-        "data": data_cfg,
-        "model": model_cfg,
-        "training": training_cfg,
-        "experiment_id": experiment_id
-    }
-
-    return OmegaConf.structured(cfg)
-
-def get_model(model_type, **model_kwargs):
-    try:
-        return getattr(dti_architecture, model_type)(**model_kwargs)
-    except AttributeError:
-        raise ValueError("Specified model is not supported")
-        
-
-

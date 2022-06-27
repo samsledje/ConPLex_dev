@@ -91,9 +91,9 @@ all_drugs = pd.concat([train_val,test]).Drug.values
 all_proteins = pd.concat([train_val,test]).Target.values
 
 ### Pre-compute drug and protein representations
-import src.mol_feats as MOL_FEATS
-import src.prot_feats as PROT_FEATS
-import src.architectures as ARCHITECTURES
+import src.molecule as MOL_FEATS
+import src.protein as PROT_FEATS
+import src.architecture as ARCHITECTURES
 to_disk_path = f"{DATA_DIR}/tdc_bindingdb_patent_train"
 
 # mol_featurizer = Morgan_DC_f()
