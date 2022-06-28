@@ -77,6 +77,37 @@ class SimpleCosine(nn.Module):
 
         return self.activator(mol_proj, prot_proj)
     
+class SimpleCoembedding(nn.Module):
+    def __init__(self,
+                 mol_emb_size = 2048,
+                 prot_emb_size = 100,
+                 latent_size = 1024,
+                 latent_activation = nn.ReLU,
+                 latent_distance = "Cosine",
+                ):
+        super().__init__()
+        self.mol_emb_size = mol_emb_size
+        self.prot_emb_size = prot_emb_size
+
+        self.mol_projector = nn.Sequential(
+            nn.Linear(self.mol_emb_size, latent_size),
+            latent_activation()
+        )
+
+        self.prot_projector = nn.Sequential(
+            nn.Linear(self.prot_emb_size, latent_size),
+            latent_activation()
+        )
+
+        self.dist_metric = latent_distance
+        self.activator = DISTANCE_METRICS[self.dist_metric]()
+
+    def forward(self, mol_emb, prot_emb):
+        mol_proj = self.mol_projector(mol_emb)
+        prot_proj = self.prot_projector(prot_emb)
+
+        return self.activator(mol_proj, prot_proj)
+    
 class CosineBatchNorm(nn.Module):
     def __init__(self,
                  mol_emb_size = 2048,

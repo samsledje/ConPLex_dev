@@ -1,0 +1,18 @@
+drug_featurizer: MorganFeaturizer
+target_featurizer: ProtBertFeaturizer
+model_architecture: SimpleCoembedding
+latent_dimension: 1024
+latent_distance: "Cosine"
+
+batch_size: 32
+shuffle: True
+num_workers: 0
+embedding_dir: './saved_embeddings'
+
+epochs: 50
+every_n_val: 1
+lr: 1e-4
+
+replicate: 0
+device: 0
+verbosity: 3
