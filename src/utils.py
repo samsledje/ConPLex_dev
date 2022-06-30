@@ -16,11 +16,12 @@ from rdkit.Chem import AllChem
 logLevels = {0: lg.ERROR, 1: lg.WARNING, 2: lg.INFO, 3: lg.DEBUG}
 LOGGER_NAME = "DTI"
 
+
 def config_logger(file, fmt, level=2, use_stdout=True):
     module_logger = lg.getLogger(LOGGER_NAME)
     module_logger.setLevel(logLevels[level])
     formatter = lg.Formatter(fmt)
-    
+
     if file is not None:
         fh = lg.FileHandler(file)
         fh.setFormatter(formatter)
@@ -33,13 +34,15 @@ def config_logger(file, fmt, level=2, use_stdout=True):
 
     return module_logger
 
+
 def get_logger():
     return lg.getLogger(LOGGER_NAME)
-    
+
 
 def set_random_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
+
 
 def canonicalize(smiles):
     mol = Chem.MolFromSmiles(smiles)
@@ -48,32 +51,38 @@ def canonicalize(smiles):
     else:
         return None
 
-def smiles2morgan(s, radius = 2, nBits = 2048):
-    """Convert smiles into Morgan Fingerprint. 
-    Args: 
+
+def smiles2morgan(s, radius=2, nBits=2048):
+    """Convert smiles into Morgan Fingerprint.
+    Args:
       smiles: str
       radius: int (default: 2)
       nBits: int (default: 1024)
     Returns:
       fp: numpy.array
-    """  
+    """
     try:
         s = canonicalize(s)
         mol = Chem.MolFromSmiles(s)
-        features_vec = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=nBits)
+        features_vec = AllChem.GetMorganFingerprintAsBitVect(
+            mol, radius, nBits=nBits
+        )
         features = np.zeros((1,))
         DataStructs.ConvertToNumpyArray(features_vec, features)
     except Exception as e:
         print(e)
-        print(f'rdkit not found this smiles for morgan: {s} convert to all 0 features')
-        features = np.zeros((nBits, ))
+        print(
+            f"rdkit not found this smiles for morgan: {s} convert to all 0 features"
+        )
+        features = np.zeros((nBits,))
     return features
+
 
 def get_config(experiment_id, mol_feat, prot_feat):
     data_cfg = {
         "batch_size": 32,
         "num_workers": 0,
-        "precompute":True,
+        "precompute": True,
         "mol_feat": mol_feat,
         "prot_feat": prot_feat,
     }
@@ -88,12 +97,13 @@ def get_config(experiment_id, mol_feat, prot_feat):
         "data": data_cfg,
         "model": model_cfg,
         "training": training_cfg,
-        "experiment_id": experiment_id
+        "experiment_id": experiment_id,
     }
 
     return OmegaConf.structured(cfg)
-        
-def sigmoid_cosine_distance_p(x,y,p=1):
+
+
+def sigmoid_cosine_distance_p(x, y, p=1):
     sig = torch.nn.Sigmoid()
     cosine_sim = torch.nn.CosineSimilarity()
-    return (1 - sig(cosine_sim(x,y)))**p
+    return (1 - sig(cosine_sim(x, y))) ** p

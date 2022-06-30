@@ -13,14 +13,15 @@ from torch.nn.utils.rnn import pad_sequence
 import warnings
 
 PRECOMPUTED_PROTEIN_PATH = "precomputed_proteins.pk"
-MODEL_DIR = f"/afs/csail.mit.edu/u/s/samsl/Work/Adapting_PLM_DTI/models"
+MODEL_DIR = "/afs/csail.mit.edu/u/s/samsl/Work/Adapting_PLM_DTI/models"
 
 #################################
 # Sanity Check Null Featurizers #
 #################################
 
+
 class Random_f:
-    def __init__(self, size = 1024, pool=True):
+    def __init__(self, size=1024, pool=True):
         self.use_cuda = True
         self._size = size
 
@@ -33,8 +34,9 @@ class Random_f:
     def __call__(self, seq):
         return self._transform(seq)
 
+
 class Null_f:
-    def __init__(self, size = 1024, pool=True):
+    def __init__(self, size=1024, pool=True):
         self.use_cuda = True
         self._size = size
 
@@ -47,25 +49,25 @@ class Null_f:
     def __call__(self, seq):
         return self._transform(seq)
 
+
 class Base_f:
     def __init__(self):
         self.precomputed = False
         self.name = None
         self.use_cuda = True
         raise NotImplementedError("should be implemented in subclass")
-        
-        
+
     def precompute(self, seqs, to_disk_path=True, from_disk=True):
         print(f"--- precomputing {self.name} featurizer ---")
         assert not self.precomputed
         self.precompute_path = f"{to_disk_path}_{self.name}.pk"
         if from_disk and os.path.exists(self.precompute_path):
             print("--- loading from disk ---")
-            cpu_embs = pk.load(open(self.precompute_path,"rb"))
+            cpu_embs = pk.load(open(self.precompute_path, "rb"))
             if not self.use_cuda:
                 self.embs = cpu_embs
             else:
-                self.embs = {k: v.cuda() for k,v in cpu_embs.items()}
+                self.embs = {k: v.cuda() for k, v in cpu_embs.items()}
         else:
             self.embs = {}
             for sq in tqdm(seqs):
@@ -73,32 +75,37 @@ class Base_f:
                     continue
                 self.embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(self.precompute_path):
-                print(f'--- saving protein embeddings to {self.precompute_path} ---')
-                cpu_embs = {k: v.cpu() for k,v in self.embs.items()}
-                pk.dump(cpu_embs, open(self.precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                self.precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {self.precompute_path} ---"
+                )
+                cpu_embs = {k: v.cpu() for k, v in self.embs.items()}
+                pk.dump(cpu_embs, open(self.precompute_path, "wb+"))
         self.precomputed = True
-        
+
     @lru_cache(maxsize=5000)
     def _transform(self, x):
         raise NotImplementedError("should be implemented in subclass")
-            
+
     def __call__(self, seq):
         if self.precomputed:
             return self.prot_embs[seq]
         else:
             return self._transform(seq)
-        
-    
-    
+
+
 ####################################
 # Language Model Alone Featurizers #
 ####################################
+
 
 class BeplerBerger_f:
     def __init__(self, pool=True):
         from dscript.language_model import lm_embed
         from dscript.pretrained import get_pretrained
+
         self.use_cuda = True
         self.pool = pool
         self._size = 6165
@@ -113,7 +120,7 @@ class BeplerBerger_f:
         precompute_path = f"{to_disk_path}_BeplerBerger_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -121,15 +128,19 @@ class BeplerBerger_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq):
         if len(seq) > self._max_len:
-            seq = seq[:self._max_len]
+            seq = seq[: self._max_len]
 
         with torch.no_grad():
             lm_emb = self._embed(seq, use_cuda=self.use_cuda)
@@ -144,6 +155,7 @@ class BeplerBerger_f:
         else:
             return self._transform(seq)
 
+
 try:
     from prose.alphabets import Uniprot21
     from prose.models.multitask import ProSEMT
@@ -152,13 +164,16 @@ try:
         def __init__(self, pool=True):
             from dscript.language_model import lm_embed
             from dscript.pretrained import get_pretrained
+
             self.use_cuda = True
             self.pool = pool
             self._size = 6165
             self._max_len = 800
             self.precomputed = False
 
-            self._prose_model = ProSEMT.load_pretrained(path=f"{MODEL_DIR}/prose_mt_3x1024.sav")
+            self._prose_model = ProSEMT.load_pretrained(
+                path=f"{MODEL_DIR}/prose_mt_3x1024.sav"
+            )
             if self.use_cuda:
                 self._prose_model = self._prose_model.cuda()
             self._prose_alphabet = Uniprot21()
@@ -169,7 +184,7 @@ try:
             precompute_path = f"{to_disk_path}_Prose_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
             if from_disk and os.path.exists(precompute_path):
                 print("--- loading from disk ---")
-                self.prot_embs = pk.load(open(precompute_path,"rb"))
+                self.prot_embs = pk.load(open(precompute_path, "rb"))
             else:
                 self.prot_embs = {}
                 for sq in tqdm(seqs):
@@ -177,18 +192,22 @@ try:
                         continue
                     self.prot_embs[sq] = self._transform(sq)
 
-                if to_disk_path is not None and not os.path.exists(precompute_path):
-                    print(f'--- saving protein embeddings to {precompute_path} ---')
-                    pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+                if to_disk_path is not None and not os.path.exists(
+                    precompute_path
+                ):
+                    print(
+                        f"--- saving protein embeddings to {precompute_path} ---"
+                    )
+                    pk.dump(self.prot_embs, open(precompute_path, "wb+"))
             self.precomputed = True
 
         @lru_cache(maxsize=5000)
         def _transform(self, seq):
             if len(seq) > self._max_len:
-                seq = seq[:self._max_len]
+                seq = seq[: self._max_len]
 
             with torch.no_grad():
-                x = seq.upper().encode('utf-8')
+                x = seq.upper().encode("utf-8")
                 x = self._prose_alphabet.encode(x)
                 x = torch.from_numpy(x)
                 if self.use_cuda:
@@ -208,16 +227,22 @@ try:
             else:
                 return self._transform(seq)
 
+
 except (ModuleNotFoundError, ImportError):
-    warnings.warn("Prose not installed -- unable to use Prose family of protein featurizers")
+    warnings.warn(
+        "Prose not installed -- unable to use Prose family of protein featurizers"
+    )
+
 
 class ESM_f:
-    def __init__(self,
-                 pool: bool = True,
-                 dl_path: str = MODEL_DIR,
-                ):
+    def __init__(
+        self,
+        pool: bool = True,
+        dl_path: str = MODEL_DIR,
+    ):
         super().__init__()
         import esm
+
         if dl_path is not None:
             torch.hub.set_dir(dl_path)
 
@@ -227,7 +252,10 @@ class ESM_f:
         self._max_len = 1024
         self.precomputed = False
 
-        self._esm_model, self._esm_alphabet = esm.pretrained.esm1b_t33_650M_UR50S()
+        (
+            self._esm_model,
+            self._esm_alphabet,
+        ) = esm.pretrained.esm1b_t33_650M_UR50S()
         self._esm_batch_converter = self._esm_alphabet.get_batch_converter()
         if self.use_cuda:
             self._esm_model = self._esm_model.cuda()
@@ -238,7 +266,7 @@ class ESM_f:
         precompute_path = f"{to_disk_path}_ESM_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -246,21 +274,29 @@ class ESM_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq: str):
-        if len(seq) > self._max_len-2:
-            seq = seq[:self._max_len-2]
+        if len(seq) > self._max_len - 2:
+            seq = seq[: self._max_len - 2]
 
         with torch.no_grad():
-            batch_labels, batch_strs, batch_tokens = self._esm_batch_converter([('sequence',seq)])
+            batch_labels, batch_strs, batch_tokens = self._esm_batch_converter(
+                [("sequence", seq)]
+            )
             if self.use_cuda:
                 batch_tokens = batch_tokens.cuda()
-            results = self._esm_model(batch_tokens, repr_layers=[33], return_contacts=True)
+            results = self._esm_model(
+                batch_tokens, repr_layers=[33], return_contacts=True
+            )
             token_representations = results["representations"][33]
 
             # Generate per-sequence representations via averaging
@@ -278,10 +314,12 @@ class ESM_f:
         else:
             return self._transform(seq)
 
+
 class ProtBert_f:
-    def __init__(self,
-                 pool: bool = True,
-                ):
+    def __init__(
+        self,
+        pool: bool = True,
+    ):
         super().__init__()
         from transformers import AutoTokenizer, AutoModel, pipeline
 
@@ -291,12 +329,27 @@ class ProtBert_f:
         self._max_len = 1024
         self.precomputed = False
 
-        self._protbert_tokenizer = AutoTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False,cache_dir=f"{MODEL_DIR}/huggingface/transformers")
-        self._protbert_model = AutoModel.from_pretrained("Rostlab/prot_bert",cache_dir=f"{MODEL_DIR}/huggingface/transformers")
+        self._protbert_tokenizer = AutoTokenizer.from_pretrained(
+            "Rostlab/prot_bert",
+            do_lower_case=False,
+            cache_dir=f"{MODEL_DIR}/huggingface/transformers",
+        )
+        self._protbert_model = AutoModel.from_pretrained(
+            "Rostlab/prot_bert",
+            cache_dir=f"{MODEL_DIR}/huggingface/transformers",
+        )
         if self.use_cuda:
-            self._protbert_feat = pipeline('feature-extraction', model=self._protbert_model, tokenizer=self._protbert_tokenizer)
+            self._protbert_feat = pipeline(
+                "feature-extraction",
+                model=self._protbert_model,
+                tokenizer=self._protbert_tokenizer,
+            )
         else:
-            self._protbert_feat = pipeline('feature-extraction', model=self._protbert_model, tokenizer=self._protbert_tokenizer)
+            self._protbert_feat = pipeline(
+                "feature-extraction",
+                model=self._protbert_model,
+                tokenizer=self._protbert_tokenizer,
+            )
 
     def _space_sequence(self, x):
         return " ".join(list(x))
@@ -307,7 +360,7 @@ class ProtBert_f:
         precompute_path = f"{to_disk_path}_ProtBert_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -315,21 +368,27 @@ class ProtBert_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq: str):
-        if len(seq) > self._max_len-2:
-            seq = seq[:self._max_len-2]
+        if len(seq) > self._max_len - 2:
+            seq = seq[: self._max_len - 2]
 
         with torch.no_grad():
-            embedding = torch.tensor(self._protbert_feat(self._space_sequence(seq)))
+            embedding = torch.tensor(
+                self._protbert_feat(self._space_sequence(seq))
+            )
         seq_len = len(seq)
         start_Idx = 1
-        end_Idx = seq_len+1
+        end_Idx = seq_len + 1
         seq_emb = embedding.squeeze()[start_Idx:end_Idx]
 
         if self.pool:
@@ -343,31 +402,37 @@ class ProtBert_f:
         else:
             return self._transform(seq)
 
+
 def get_T5_model():
     from transformers import T5Tokenizer, T5EncoderModel
-    model = T5EncoderModel.from_pretrained("Rostlab/prot_t5_xl_uniref50",
-                                           cache_dir=f"{MODEL_DIR}/huggingface/transformers"
-                                          )
-    model = model.eval() # set model to evaluation model
-    tokenizer = T5Tokenizer.from_pretrained("Rostlab/prot_t5_xl_uniref50",
-                                            do_lower_case=False,
-                                            cache_dir=f"{MODEL_DIR}/huggingface/transformers"
-                                           ) 
+
+    model = T5EncoderModel.from_pretrained(
+        "Rostlab/prot_t5_xl_uniref50",
+        cache_dir=f"{MODEL_DIR}/huggingface/transformers",
+    )
+    model = model.eval()  # set model to evaluation model
+    tokenizer = T5Tokenizer.from_pretrained(
+        "Rostlab/prot_t5_xl_uniref50",
+        do_lower_case=False,
+        cache_dir=f"{MODEL_DIR}/huggingface/transformers",
+    )
 
     return model, tokenizer
-        
+
+
 class ProtT5_XL_Uniref50_f:
-    def __init__(self,
-                 pool: bool = True,
-                ):
+    def __init__(
+        self,
+        pool: bool = True,
+    ):
         super().__init__()
-        
+
         self.use_cuda = True
         self.pool = pool
         self._size = 1024
         self._max_len = 1024
         self.precomputed = False
-        
+
         self._protbert_model, self._protbert_tokenizer = get_T5_model()
         if self.use_cuda:
             self._protbert_model = self._protbert_model.cuda()
@@ -383,7 +448,7 @@ class ProtT5_XL_Uniref50_f:
         precompute_path = f"{to_disk_path}_ProtT5_XL_Uniref50_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -391,35 +456,42 @@ class ProtT5_XL_Uniref50_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq: str):
-        if len(seq) > self._max_len-2:
-            seq = seq[:self._max_len-2]
+        if len(seq) > self._max_len - 2:
+            seq = seq[: self._max_len - 2]
 
-        token_encoding = self._protbert_tokenizer.batch_encode_plus(self._space_sequence(seq),
-                                                     add_special_tokens=True,
-                                                     padding="longest"
-                                                    )
-        input_ids      = torch.tensor(token_encoding['input_ids'])
-        attention_mask = torch.tensor(token_encoding['attention_mask'])
+        token_encoding = self._protbert_tokenizer.batch_encode_plus(
+            self._space_sequence(seq),
+            add_special_tokens=True,
+            padding="longest",
+        )
+        input_ids = torch.tensor(token_encoding["input_ids"])
+        attention_mask = torch.tensor(token_encoding["attention_mask"])
 
         if self.use_cuda:
             input_ids = input_ids.cuda()
             attention_mask = attention_mask.cuda()
 
         with torch.no_grad():
-            embedding = self._protbert_model(input_ids=input_ids,attention_mask=attention_mask)
+            embedding = self._protbert_model(
+                input_ids=input_ids, attention_mask=attention_mask
+            )
             embedding = embedding.last_hidden_state
             # seq_len = (attention_mask[0] == 1).sum()
             # seq_emb = embedding[0][:seq_len-1]
             seq_len = len(seq)
             start_Idx = 1
-            end_Idx = seq_len+1
+            end_Idx = seq_len + 1
             seq_emb = embedding[0][start_Idx:end_Idx]
 
         if self.pool:
@@ -432,32 +504,39 @@ class ProtT5_XL_Uniref50_f:
             return self.prot_embs[seq]
         else:
             return self._transform(seq)
-        
+
+
 class BindPredict21_f:
     def __init__(self, pool=False):
-        BINDPREDICT_DIR = '/afs/csail.mit.edu/u/s/samsl/Work/Applications/bindPredict'
-        model_prefix = f'{BINDPREDICT_DIR}/trained_models/checkpoint'
+        BINDPREDICT_DIR = (
+            "/afs/csail.mit.edu/u/s/samsl/Work/Applications/bindPredict"
+        )
+        model_prefix = f"{BINDPREDICT_DIR}/trained_models/checkpoint"
         sys.path.append(BINDPREDICT_DIR)
         from architectures import CNN2Layers
-        
+
         self.use_cuda = True
         self.pool = pool
         self._size = 128
         self._max_len = 1024
         self.precomputed = False
-        
+
         self._p5tf = ProtT5_XL_Uniref50_f(pool=False)
-        self._md = CNN2Layers(1024,128,5,1,2,0)
-        self._md.load_state_dict(torch.load(f"{model_prefix}5.pt", map_location='cuda:1')['state_dict'])
+        self._md = CNN2Layers(1024, 128, 5, 1, 2, 0)
+        self._md.load_state_dict(
+            torch.load(f"{model_prefix}5.pt", map_location="cuda:1")[
+                "state_dict"
+            ]
+        )
         self._md = self._md.cuda()
         self._md = self._md.eval()
         self._cnn_first = self._md.conv1[:2]
         self._embed = self._seq_2_bindPredict_embedding
-        
-    def _seq_2_bindPredict_embedding(self,seq,use_cuda=True):
+
+    def _seq_2_bindPredict_embedding(self, seq, use_cuda=True):
         with torch.set_grad_enabled(False):
             protbert_e = self._p5tf(seq)
-            bindpredict_e = self._cnn_first(protbert_e.view(1,1024,-1))
+            bindpredict_e = self._cnn_first(protbert_e.view(1, 1024, -1))
             return bindpredict_e.mean(axis=2).squeeze()
 
     def precompute(self, seqs, to_disk_path=True, from_disk=True):
@@ -466,7 +545,7 @@ class BindPredict21_f:
         precompute_path = f"{to_disk_path}_BindPredict21_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -474,15 +553,19 @@ class BindPredict21_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq):
         if len(seq) > self._max_len:
-            seq = seq[:self._max_len]
+            seq = seq[: self._max_len]
 
         with torch.no_grad():
             lm_emb = self._embed(seq, use_cuda=self.use_cuda)
@@ -494,14 +577,17 @@ class BindPredict21_f:
         else:
             return self._transform(seq)
 
+
 ####################################
 # PLM --> D-SCRIPT 100 Featurizers #
 ####################################
+
 
 class BeplerBerger_DSCRIPT_f:
     def __init__(self, pool=True):
         from dscript.language_model import lm_embed
         from dscript.pretrained import get_pretrained
+
         self.use_cuda = True
         self.pool = pool
         self._size = 100
@@ -520,7 +606,7 @@ class BeplerBerger_DSCRIPT_f:
         precompute_path = f"{to_disk_path}_BeplerBerger_DSCRIPT_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -528,15 +614,19 @@ class BeplerBerger_DSCRIPT_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq):
         if len(seq) > self._max_len:
-            seq = seq[:self._max_len]
+            seq = seq[: self._max_len]
 
         with torch.no_grad():
             lm_emb = self._embed(seq, use_cuda=self.use_cuda)
@@ -554,18 +644,24 @@ class BeplerBerger_DSCRIPT_f:
         else:
             return self._transform(seq)
 
+
 class ESM_DSCRIPT_f:
-    def __init__(self, pool=True, model_path=f"{MODEL_DIR}/esm_epoch5_state_dict.pt"):
+    def __init__(
+        self, pool=True, model_path=f"{MODEL_DIR}/esm_epoch5_state_dict.pt"
+    ):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
+
         def build_human_esm(state_dict_path):
             """
             :meta private:
             """
             embModel = FullyConnectedEmbed(1280, 100, 0.5)
             conModel = ContactCNN(100, 50, 7)
-            model = ModelInteraction(embModel, conModel, use_cuda=True, do_w=True, pool_size=9)
+            model = ModelInteraction(
+                embModel, conModel, use_cuda=True, do_w=True, pool_size=9
+            )
             state_dict = torch.load(state_dict_path)
             model.load_state_dict(state_dict)
             model.eval()
@@ -589,7 +685,7 @@ class ESM_DSCRIPT_f:
         precompute_path = f"{to_disk_path}_ESM_DSCRIPT_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -597,15 +693,19 @@ class ESM_DSCRIPT_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq):
         if len(seq) > self._max_len:
-            seq = seq[:self._max_len]
+            seq = seq[: self._max_len]
 
         with torch.no_grad():
             lm_emb = self._embed(seq)
@@ -623,18 +723,26 @@ class ESM_DSCRIPT_f:
         else:
             return self._transform(seq)
 
+
 class ProtBert_DSCRIPT_f:
-    def __init__(self, pool=False, model_path=f"{MODEL_DIR}/protbert_epoch3_state_dict.pt"):
+    def __init__(
+        self,
+        pool=False,
+        model_path=f"{MODEL_DIR}/protbert_epoch3_state_dict.pt",
+    ):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
+
         def build_human_protbert(state_dict_path):
             """
             :meta private:
             """
             embModel = FullyConnectedEmbed(1024, 100, 0.5)
             conModel = ContactCNN(100, 50, 7)
-            model = ModelInteraction(embModel, conModel, use_cuda=True, do_w=True, pool_size=9)
+            model = ModelInteraction(
+                embModel, conModel, use_cuda=True, do_w=True, pool_size=9
+            )
             state_dict = torch.load(state_dict_path)
             model.load_state_dict(state_dict)
             model.eval()
@@ -658,7 +766,7 @@ class ProtBert_DSCRIPT_f:
         precompute_path = f"{to_disk_path}_ProtBert_DSCRIPT_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -666,15 +774,19 @@ class ProtBert_DSCRIPT_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq):
         if len(seq) > self._max_len:
-            seq = seq[:self._max_len]
+            seq = seq[: self._max_len]
 
         with torch.no_grad():
             lm_emb = self._embed(seq)
@@ -692,14 +804,17 @@ class ProtBert_DSCRIPT_f:
         else:
             return self._transform(seq)
 
+
 ##################################
 # PLM + D-SCRIPT 100 Featurizers #
 ##################################
+
 
 class BeplerBerger_DSCRIPT_cat_f:
     def __init__(self, pool=True):
         from dscript.language_model import lm_embed
         from dscript.pretrained import get_pretrained
+
         self.use_cuda = True
         self.pool = pool
         self._size = 6265
@@ -718,7 +833,7 @@ class BeplerBerger_DSCRIPT_cat_f:
         precompute_path = f"{to_disk_path}_BeplerBerger_DSCRIPT_cat_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -726,22 +841,26 @@ class BeplerBerger_DSCRIPT_cat_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq):
         if len(seq) > self._max_len:
-            seq = seq[:self._max_len]
+            seq = seq[: self._max_len]
 
         with torch.no_grad():
-            lm_emb = self._embed(seq,use_cuda=self.use_cuda)
+            lm_emb = self._embed(seq, use_cuda=self.use_cuda)
             if self.use_cuda:
                 lm_emb = lm_emb.cuda()
             ds_emb = self._dscript_model.embedding(lm_emb)
-            emb_cat = torch.cat((lm_emb,ds_emb),dim=2).squeeze()
+            emb_cat = torch.cat((lm_emb, ds_emb), dim=2).squeeze()
 
             if self.pool:
                 return emb_cat.squeeze().mean(axis=0)
@@ -754,18 +873,24 @@ class BeplerBerger_DSCRIPT_cat_f:
         else:
             return self._transform(seq)
 
+
 class ESM_DSCRIPT_cat_f:
-    def __init__(self, pool=True, model_path=f"{MODEL_DIR}/esm_epoch5_state_dict.pt"):
+    def __init__(
+        self, pool=True, model_path=f"{MODEL_DIR}/esm_epoch5_state_dict.pt"
+    ):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
+
         def build_human_esm(state_dict_path):
             """
             :meta private:
             """
             embModel = FullyConnectedEmbed(1280, 100, 0.5)
             conModel = ContactCNN(100, 50, 7)
-            model = ModelInteraction(embModel, conModel, use_cuda=True, do_w=True, pool_size=9)
+            model = ModelInteraction(
+                embModel, conModel, use_cuda=True, do_w=True, pool_size=9
+            )
             state_dict = torch.load(state_dict_path)
             model.load_state_dict(state_dict)
             model.eval()
@@ -789,7 +914,7 @@ class ESM_DSCRIPT_cat_f:
         precompute_path = f"{to_disk_path}_ESM_DSCRIPT_cat_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -797,22 +922,26 @@ class ESM_DSCRIPT_cat_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq):
         if len(seq) > self._max_len:
-            seq = seq[:self._max_len]
+            seq = seq[: self._max_len]
 
         with torch.no_grad():
             lm_emb = self._embed(seq)
             if self.use_cuda:
                 lm_emb = lm_emb.cuda()
             ds_emb = self._dscript_model.embedding(lm_emb)
-            emb_cat = torch.cat((lm_emb,ds_emb),dim=1)
+            emb_cat = torch.cat((lm_emb, ds_emb), dim=1)
 
             if self.pool:
                 return emb_cat.squeeze().mean(axis=0)
@@ -825,18 +954,26 @@ class ESM_DSCRIPT_cat_f:
         else:
             return self._transform(seq)
 
+
 class ProtBert_DSCRIPT_cat_f:
-    def __init__(self, pool=True, model_path=f"{MODEL_DIR}/protbert_epoch3_state_dict.pt"):
+    def __init__(
+        self,
+        pool=True,
+        model_path=f"{MODEL_DIR}/protbert_epoch3_state_dict.pt",
+    ):
         from dscript.models.embedding import FullyConnectedEmbed, SkipLSTM
         from dscript.models.contact import ContactCNN
         from dscript.models.interaction import ModelInteraction
+
         def build_human_protbert(state_dict_path):
             """
             :meta private:
             """
             embModel = FullyConnectedEmbed(1024, 100, 0.5)
             conModel = ContactCNN(100, 50, 7)
-            model = ModelInteraction(embModel, conModel, use_cuda=True, do_w=True, pool_size=9)
+            model = ModelInteraction(
+                embModel, conModel, use_cuda=True, do_w=True, pool_size=9
+            )
             state_dict = torch.load(state_dict_path)
             model.load_state_dict(state_dict)
             model.eval()
@@ -860,7 +997,7 @@ class ProtBert_DSCRIPT_cat_f:
         precompute_path = f"{to_disk_path}_ProtBert_DSCRIPT_cat_f_PROTEINS{'_STACKED' if not self.pool else ''}.pk"
         if from_disk and os.path.exists(precompute_path):
             print("--- loading from disk ---")
-            self.prot_embs = pk.load(open(precompute_path,"rb"))
+            self.prot_embs = pk.load(open(precompute_path, "rb"))
         else:
             self.prot_embs = {}
             for sq in tqdm(seqs):
@@ -868,22 +1005,26 @@ class ProtBert_DSCRIPT_cat_f:
                     continue
                 self.prot_embs[sq] = self._transform(sq)
 
-            if to_disk_path is not None and not os.path.exists(precompute_path):
-                print(f'--- saving protein embeddings to {precompute_path} ---')
-                pk.dump(self.prot_embs, open(precompute_path,"wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                precompute_path
+            ):
+                print(
+                    f"--- saving protein embeddings to {precompute_path} ---"
+                )
+                pk.dump(self.prot_embs, open(precompute_path, "wb+"))
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, seq):
         if len(seq) > self._max_len:
-            seq = seq[:self._max_len]
+            seq = seq[: self._max_len]
 
         with torch.no_grad():
             lm_emb = self._embed(seq)
             if self.use_cuda:
                 lm_emb = lm_emb.cuda()
             ds_emb = self._dscript_model.embedding(lm_emb)
-            emb_cat = torch.cat((lm_emb,ds_emb),dim=1)
+            emb_cat = torch.cat((lm_emb, ds_emb), dim=1)
 
             if self.pool:
                 return emb_cat.squeeze().mean(axis=0)

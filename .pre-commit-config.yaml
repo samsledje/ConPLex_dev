@@ -27,6 +27,6 @@ repos:
     - id: pytest-check
       name: pytest-check
       entry: pytest
-      language: conda
+      language: system
       pass_filenames: false
       always_run: true

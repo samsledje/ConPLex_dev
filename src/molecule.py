@@ -11,21 +11,21 @@ from omegaconf import OmegaConf
 from functools import lru_cache
 from torch.nn.utils.rnn import pad_sequence
 from models.molR_featurize import MolEFeaturizer, GraphDataset
+import logging
 
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 
+logg = logging.getLogger(__name__)
 PRECOMPUTED_MOLECULE_PATH = "precomputed_molecules.pk"
-
-def canonicalize(smile):
-    return Chem.MolToSmiles(Chem.MolFromSmiles(smile),isomericSmiles=False)
 
 #################################
 # Sanity Check Null Featurizers #
 #################################
 
+
 class Random_f:
-    def __init__(self, size = 1024, pool=True):
+    def __init__(self, size=1024, pool=True):
         self.use_cuda = True
         self._size = size
 
@@ -37,9 +37,10 @@ class Random_f:
 
     def __call__(self, seq):
         return self._transform(seq)
-    
+
+
 class Null_f:
-    def __init__(self, size = 1024, pool=True):
+    def __init__(self, size=1024, pool=True):
         self.use_cuda = True
         self._size = size
 
@@ -52,9 +53,11 @@ class Null_f:
     def __call__(self, seq):
         return self._transform(seq)
 
+
 #########################
 # Molecular Featurizers #
 #########################
+
 
 def canonicalize(smiles):
     mol = Chem.MolFromSmiles(smiles)
@@ -63,33 +66,44 @@ def canonicalize(smiles):
     else:
         return None
 
-def smiles2morgan(s, radius = 2, nBits = 2048):
-    """Convert smiles into Morgan Fingerprint. 
-    Args: 
+
+def smiles2morgan(s, radius=2, nBits=2048):
+    """Convert smiles into Morgan Fingerprint.
+    Args:
       smiles: str
       radius: int (default: 2)
       nBits: int (default: 1024)
     Returns:
       fp: numpy.array
-    """  
+    """
     try:
         s = canonicalize(s)
         mol = Chem.MolFromSmiles(s)
-        features_vec = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=nBits)
+        features_vec = AllChem.GetMorganFingerprintAsBitVect(
+            mol, radius, nBits=nBits
+        )
         features = np.zeros((1,))
         DataStructs.ConvertToNumpyArray(features_vec, features)
-    except:
-        print(f'rdkit not found this smiles for morgan: {s} convert to all 0 features')
-        features = np.zeros((nBits, ))
+    except Exception as e:
+        logg.error(
+            f"rdkit not found this smiles for morgan: {s} convert to all 0 features"
+        )
+        logg.error(e)
+        features = np.zeros((nBits,))
     return features
 
+
 class Morgan_f:
-    def __init__(self,
-                 size=2048,
-                 radius=2,
-                ):
+    def __init__(
+        self,
+        size=2048,
+        radius=2,
+    ):
         import deepchem as dc
-        self._morgan_featurizer = lambda x: smiles2morgan(x, radius=radius, nBits=size)
+
+        self._morgan_featurizer = lambda x: smiles2morgan(
+            x, radius=radius, nBits=size
+        )
         self._size = size
         self.use_cuda = True
         self.precomputed = False
@@ -100,7 +114,9 @@ class Morgan_f:
 
         if from_disk and os.path.exists(f"{to_disk_path}_Morgan_MOLECULES.pk"):
             print("--- loading from disk ---")
-            self.mol_embs = pk.load(open(f"{to_disk_path}_Morgan_MOLECULES.pk","rb"))
+            self.mol_embs = pk.load(
+                open(f"{to_disk_path}_Morgan_MOLECULES.pk", "rb")
+            )
         else:
             self.mol_embs = {}
             for sm in tqdm(smiles):
@@ -112,14 +128,23 @@ class Morgan_f:
                     if self.use_cuda:
                         m_emb = m_emb.cuda()
                 self.mol_embs[sm] = m_emb
-            if to_disk_path is not None and not os.path.exists(f"{to_disk_path}_Morgan_MOLECULES.pk"):
-                print(f'--- saving morgans to {f"{to_disk_path}_Morgan_MOLECULES.pk"} ---')
-                pk.dump(self.mol_embs, open(f"{to_disk_path}_Morgan_MOLECULES.pk","wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                f"{to_disk_path}_Morgan_MOLECULES.pk"
+            ):
+                print(
+                    f'--- saving morgans to {f"{to_disk_path}_Morgan_MOLECULES.pk"} ---'
+                )
+                pk.dump(
+                    self.mol_embs,
+                    open(f"{to_disk_path}_Morgan_MOLECULES.pk", "wb+"),
+                )
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, smile):
-        tens = torch.from_numpy(self._morgan_featurizer(smile)).squeeze().float()
+        tens = (
+            torch.from_numpy(self._morgan_featurizer(smile)).squeeze().float()
+        )
         if self.use_cuda:
             tens = tens.cuda()
 
@@ -130,13 +155,16 @@ class Morgan_f:
             return self.mol_embs[smile]
         else:
             return self._transform(smile)
-        
+
+
 class Morgan_DC_f:
-    def __init__(self,
-                 size=2048,
-                 radius=2,
-                ):
+    def __init__(
+        self,
+        size=2048,
+        radius=2,
+    ):
         import deepchem as dc
+
         self._dc_featurizer = dc.feat.CircularFingerprint()
         self._size = size
         self.use_cuda = True
@@ -146,9 +174,13 @@ class Morgan_DC_f:
         print("--- precomputing morgan_DC molecule featurizer ---")
         assert not self.precomputed
 
-        if from_disk and os.path.exists(f"{to_disk_path}_Morgan_DC_MOLECULES.pk"):
+        if from_disk and os.path.exists(
+            f"{to_disk_path}_Morgan_DC_MOLECULES.pk"
+        ):
             print("--- loading from disk ---")
-            self.mol_embs = pk.load(open(f"{to_disk_path}_Morgan_DC_MOLECULES.pk","rb"))
+            self.mol_embs = pk.load(
+                open(f"{to_disk_path}_Morgan_DC_MOLECULES.pk", "rb")
+            )
         else:
             self.mol_embs = {}
             for sm in tqdm(smiles):
@@ -160,14 +192,25 @@ class Morgan_DC_f:
                     if self.use_cuda:
                         m_emb = m_emb.cuda()
                 self.mol_embs[sm] = m_emb
-            if to_disk_path is not None and not os.path.exists(f"{to_disk_path}_Morgan_DC_MOLECULES.pk"):
-                print(f'--- saving morgans to {f"{to_disk_path}_Morgan_DC_MOLECULES.pk"} ---')
-                pk.dump(self.mol_embs, open(f"{to_disk_path}_Morgan_DC_MOLECULES.pk","wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                f"{to_disk_path}_Morgan_DC_MOLECULES.pk"
+            ):
+                print(
+                    f'--- saving morgans to {f"{to_disk_path}_Morgan_DC_MOLECULES.pk"} ---'
+                )
+                pk.dump(
+                    self.mol_embs,
+                    open(f"{to_disk_path}_Morgan_DC_MOLECULES.pk", "wb+"),
+                )
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, smile):
-        tens = torch.from_numpy(self._dc_featurizer.featurize([smile])).squeeze().float()
+        tens = (
+            torch.from_numpy(self._dc_featurizer.featurize([smile]))
+            .squeeze()
+            .float()
+        )
         if self.use_cuda:
             tens = tens.cuda()
 
@@ -179,11 +222,14 @@ class Morgan_DC_f:
         else:
             return self._transform(smile)
 
+
 class Mol2Vec_f:
-    def __init__(self,
-                 radius=1,
-                ):
+    def __init__(
+        self,
+        radius=1,
+    ):
         import deepchem as dc
+
         self._dc_featurizer = dc.feat.Mol2VecFingerprint()
         self._size = 300
         self.use_cuda = True
@@ -193,9 +239,13 @@ class Mol2Vec_f:
         print("--- precomputing mol2vec molecule featurizer ---")
         assert not self.precomputed
 
-        if from_disk and os.path.exists(f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk"):
+        if from_disk and os.path.exists(
+            f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk"
+        ):
             print("--- loading from disk ---")
-            self.mol_embs = pk.load(open(f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk","rb"))
+            self.mol_embs = pk.load(
+                open(f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk", "rb")
+            )
         else:
             self.mol_embs = {}
             for sm in tqdm(smiles):
@@ -207,14 +257,28 @@ class Mol2Vec_f:
                     if self.use_cuda:
                         m_emb = m_emb.cuda()
                 self.mol_embs[sm] = m_emb
-            if to_disk_path is not None and not os.path.exists(f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk"):
-                print(f'--- saving morgans to {f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk"} ---')
-                pk.dump(self.mol_embs, open(f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk","wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk"
+            ):
+                print(
+                    f'--- saving morgans to {f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk"} ---'
+                )
+                pk.dump(
+                    self.mol_embs,
+                    open(
+                        f"{to_disk_path}_Mol2Vec_PRECOMPUTED_MOLECULES.pk",
+                        "wb+",
+                    ),
+                )
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, smile):
-        tens = torch.from_numpy(self._dc_featurizer.featurize([smile])).squeeze().float()
+        tens = (
+            torch.from_numpy(self._dc_featurizer.featurize([smile]))
+            .squeeze()
+            .float()
+        )
         if self.use_cuda:
             tens = tens.cuda()
 
@@ -225,13 +289,17 @@ class Mol2Vec_f:
             return self.mol_embs[smile]
         else:
             return self._transform(smile)
-        
+
+
 class MolR_f:
-    def __init__(self,
-                 path_to_model='models/molr_saved/gcn_1024',
-                ):
+    def __init__(
+        self,
+        path_to_model="models/molr_saved/gcn_1024",
+    ):
         self.path_to_model = path_to_model
-        self._molE_featurizer = MolEFeaturizer(path_to_model=self.path_to_model)
+        self._molE_featurizer = MolEFeaturizer(
+            path_to_model=self.path_to_model
+        )
         self._size = 1024
         self.use_cuda = True
         self.gpu = 0
@@ -241,11 +309,17 @@ class MolR_f:
         print("--- precomputing molR molecule featurizer ---")
         assert not self.precomputed
 
-        if from_disk and os.path.exists(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"):
+        if from_disk and os.path.exists(
+            f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"
+        ):
             print("--- loading from disk ---")
-            self.mol_embs = pk.load(open(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk","rb"))
+            self.mol_embs = pk.load(
+                open(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk", "rb")
+            )
         else:
-            self.graphDataSet = GraphDataset(self.path_to_model, smiles, self.gpu)
+            self.graphDataSet = GraphDataset(
+                self.path_to_model, smiles, self.gpu
+            )
             self.mol_embs = {}
             for sm in tqdm(smiles):
                 if sm in self.mol_embs:
@@ -256,16 +330,27 @@ class MolR_f:
                     if self.use_cuda:
                         m_emb = m_emb.cuda()
                 self.mol_embs[sm] = m_emb
-            if to_disk_path is not None and not os.path.exists(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"):
-                print(f'--- saving embeddings to {f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"} ---')
-                pk.dump(self.mol_embs, open(f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk","wb+"))
+            if to_disk_path is not None and not os.path.exists(
+                f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"
+            ):
+                print(
+                    f'--- saving embeddings to {f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk"} ---'
+                )
+                pk.dump(
+                    self.mol_embs,
+                    open(
+                        f"{to_disk_path}_MolR_PRECOMPUTED_MOLECULES.pk", "wb+"
+                    ),
+                )
         self.precomputed = True
 
     @lru_cache(maxsize=5000)
     def _transform(self, smile):
         smile = canonicalize(smile)
         if self.precomputed:
-            embeddings, _ = self._molE_featurizer.transform(smile,data=self.graphDataSet)
+            embeddings, _ = self._molE_featurizer.transform(
+                smile, data=self.graphDataSet
+            )
         else:
             embeddings, _ = self._molE_featurizer.transform(smile)
         tens = torch.from_numpy(embeddings).squeeze().float()
