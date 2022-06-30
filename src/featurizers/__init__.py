@@ -6,7 +6,11 @@ from .base import (
 
 from .protein import (
     BeplerBergerFeaturizer,
+    ESMFeaturizer,
+    ProseFeaturizer,
     ProtBertFeaturizer,
+    ProtT5XLUniref50Featurizer,
+    BindPredict21Featurizer,
 )
 
 from .molecule import (

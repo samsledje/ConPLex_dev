@@ -1,3 +1,6 @@
+task: davis
+contrastive_split: within
+
 drug_featurizer: MorganFeaturizer
 target_featurizer: ProtBertFeaturizer
 model_architecture: SimpleCoembedding
@@ -7,11 +10,12 @@ latent_distance: "Cosine"
 batch_size: 32
 shuffle: True
 num_workers: 0
-embedding_dir: './saved_embeddings'
+model_save_dir: "./best_models"
 
 epochs: 50
 every_n_val: 1
 lr: 1e-4
+clr: 1e-5
 
 replicate: 0
 device: 0

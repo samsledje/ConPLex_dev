@@ -1,5 +1,6 @@
 import torch
 import deepchem as dc
+import logging as logg
 
 from pathlib import Path
 from .base import Featurizer
@@ -25,7 +26,7 @@ class MorganFeaturizer(Featurizer):
                  radius: int = 2,
                  save_dir: Path = Path().absolute(),
                 ):
-        super().__init__("Morgan", shape)
+        super().__init__("Morgan", shape, save_dir)
         
         self._featurizer = dc.feat.CircularFingerprint(
             radius = radius,
@@ -34,4 +35,7 @@ class MorganFeaturizer(Featurizer):
 
     def _transform(self, smile: str) -> torch.Tensor:
         feats = torch.from_numpy(self._featurizer(smile)).squeeze().float()
+        if feats.shape[0] != self.shape:
+            logg.warning("Failed to featurize: appending zero vector")
+            feats = torch.zeros(self.shape)
         return feats

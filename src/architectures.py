@@ -79,32 +79,33 @@ class SimpleCosine(nn.Module):
     
 class SimpleCoembedding(nn.Module):
     def __init__(self,
-                 mol_emb_size = 2048,
-                 prot_emb_size = 100,
-                 latent_size = 1024,
+                 drug_shape = 2048,
+                 target_shape = 100,
+                 latent_dimension = 1024,
                  latent_activation = nn.ReLU,
                  latent_distance = "Cosine",
                 ):
         super().__init__()
-        self.mol_emb_size = mol_emb_size
-        self.prot_emb_size = prot_emb_size
+        self.drug_shape = drug_shape
+        self.target_shape = target_shape
+        self.latent_dimension = latent_dimension 
 
-        self.mol_projector = nn.Sequential(
-            nn.Linear(self.mol_emb_size, latent_size),
+        self.drug_projector = nn.Sequential(
+            nn.Linear(self.drug_shape, latent_dimension),
             latent_activation()
         )
 
-        self.prot_projector = nn.Sequential(
-            nn.Linear(self.prot_emb_size, latent_size),
+        self.target_projector = nn.Sequential(
+            nn.Linear(self.target_shape, latent_dimension),
             latent_activation()
         )
 
-        self.dist_metric = latent_distance
-        self.activator = DISTANCE_METRICS[self.dist_metric]()
+        self.distance_metric = latent_distance
+        self.activator = DISTANCE_METRICS[self.distance_metric]()
 
     def forward(self, mol_emb, prot_emb):
-        mol_proj = self.mol_projector(mol_emb)
-        prot_proj = self.prot_projector(prot_emb)
+        mol_proj = self.drug_projector(mol_emb)
+        prot_proj = self.target_projector(prot_emb)
 
         return self.activator(mol_proj, prot_proj)
     

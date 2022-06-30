@@ -1,3 +1,4 @@
+from __future__ import annotations
 import torch
 import h5py
 import typing as T
@@ -6,6 +7,10 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from functools import lru_cache
+
+from ..utils import get_logger
+
+logg = get_logger()
 
 ###################
 # Base Featurizer #
@@ -21,7 +26,7 @@ class Featurizer:
         self._shape = shape
         self._save_path = save_dir / Path(f"{self._name}_features.h5")
         
-        self._precomputed = False
+        self._preloaded = False
         self._device = torch.device("cpu")
         self._cuda_registry = {}
         self._on_cuda = False
@@ -46,29 +51,30 @@ class Featurizer:
         self._device = device
         for k, (v, f) in self._cuda_registry.items():
             if f is None:
-                self._cuda_registry[k] = (v.to(device), None)
+                self._cuda_registry[k] = (v.to(self.device), None)
             else:
-                self._cuda_registry[k] = (f(device), f)
+                self._cuda_registry[k] = (f(v, self.device), f)
         for k, v in self._features.items():
             self._features[k] = v.to(device)
             
     @lru_cache(maxsize=5000)
     def transform(self, seq: str) -> torch.Tensor:
-        feats = self._transform(seq)
-        if self._on_cuda:
-            feats = feats.cuda()
-        return feats
+        with torch.set_grad_enabled(False):
+            feats = self._transform(seq)
+            if self._on_cuda:
+                feats = feats.cuda()
+            return feats
         
     @property
     def name(self) -> str:
         return self._name
         
     @property
-    def shape(self) -> str:
+    def shape(self) -> int:
         return self._shape 
         
     @property
-    def path(self) -> str:
+    def path(self) -> Path:
         return self._save_path
     
     @property
@@ -79,7 +85,11 @@ class Featurizer:
     def on_cuda(self) -> bool:
         return self._on_cuda
     
-    def cuda(self, device: torch.device):
+    @property
+    def device(self) -> torch.device:
+        return self._device
+    
+    def cuda(self, device: torch.device) -> Featurizer:
         """
         Perform model computations on CUDA, move saved embeddings to CUDA device
         """
@@ -87,7 +97,7 @@ class Featurizer:
         self._on_cuda = True
         return self
     
-    def cpu(self):
+    def cpu(self) -> Featurizer:
         """
         Perform model computations on CPU, move saved embeddings to CPU
         """
@@ -95,27 +105,26 @@ class Featurizer:
         self._on_cuda = False
         return self
         
-    def precompute(self, seq_list: T.List[str]) -> None:
+    def write_to_disk(self, seq_list: T.List[str]) -> None:
         with h5py.File(self._save_path,"a") as h5fi:
-            for seq in tqdm(seq_list, desc = f"Pre-computing {self._name} features"):
-                if seq in h5fi.keys():
-                    feats = torch.from_numpy(h5fi[seq][:])
-                    if self._on_cuda:
-                        feats.to(self._device)
-                else:
-                    dset = h5fi.require_dataset(
-                        seq, (self._shape,), np.float32
-                    )
-                    feats = self._transform(seq)
-                    dset[:] = feats
-                
-                if self._on_cuda:
-                    feats = feats.cuda()
-                    
-                self._features[seq] = feats
-        self._precomputed = True
+            logg.info(f"Writing {self.name} features to {self.path}")
+            for seq in tqdm(seq_list):
+                dset = h5fi.require_dataset(
+                    seq, (self._shape,), np.float32
+                )
+                feats = self.transform(seq)
+                dset[:] = feats.cpu().numpy()
         
+    def preload(self, seq_list: T.List[str]) -> None:
+        with h5py.File(self._save_path,"r") as h5fi:
+            logg.info(f"Preloading {self.name} features from {self.path}")
+            for seq in tqdm(seq_list):
+                feats = torch.from_numpy(h5fi[seq][:])
+                if self._on_cuda:
+                    feats = feats.to(self.device)
 
+                self._features[seq] = feats
+        self._preloaded = True
 
 ###################
 # Null and Random #
@@ -128,10 +137,13 @@ class NullFeaturizer(Featurizer):
         super().__init__(f"Null{shape}", shape)
         
     def _transform(self, seq: str) -> torch.Tensor:
-        return torch.zeros(self._shape)
+        return torch.zeros(self.shape)
     
 class RandomFeaturizer(Featurizer):
     def __init__(self,
                  shape: int = 1024
                 ):
         super().__init__(f"Random{shape}", shape)
+        
+    def _transform(self, seq: str) -> torch.Tensor:
+        return torch.rand(self.shape)

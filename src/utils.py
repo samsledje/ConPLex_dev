@@ -13,14 +13,11 @@ import logging as lg
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 
-from . import architectures as dti_architecture
-from . import protein as protein_features
-from . import molecule as molecule_features
-
 logLevels = {0: lg.ERROR, 1: lg.WARNING, 2: lg.INFO, 3: lg.DEBUG}
+LOGGER_NAME = "DTI"
 
 def config_logger(file, fmt, level=2, use_stdout=True):
-    module_logger = lg.getLogger("DTI")
+    module_logger = lg.getLogger(LOGGER_NAME)
     module_logger.setLevel(logLevels[level])
     formatter = lg.Formatter(fmt)
     
@@ -35,6 +32,10 @@ def config_logger(file, fmt, level=2, use_stdout=True):
         module_logger.addHandler(sh)
 
     return module_logger
+
+def get_logger():
+    return lg.getLogger(LOGGER_NAME)
+    
 
 def set_random_seed(seed):
     torch.manual_seed(seed)
@@ -92,8 +93,7 @@ def get_config(experiment_id, mol_feat, prot_feat):
 
     return OmegaConf.structured(cfg)
         
-def get_model(model_type, **model_kwargs):
-    try:
-        return getattr(dti_architecture, model_type)(**model_kwargs)
-    except AttributeError:
-        raise ValueError("Specified model is not supported")
+def sigmoid_cosine_distance_p(x,y,p=1):
+    sig = torch.nn.Sigmoid()
+    cosine_sim = torch.nn.CosineSimilarity()
+    return (1 - sig(cosine_sim(x,y)))**p
