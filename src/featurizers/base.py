@@ -113,6 +113,9 @@ class Featurizer:
                 dset[:] = feats.cpu().numpy()
 
     def preload(self, seq_list: T.List[str]) -> None:
+        if not self._save_path.exists():
+            self.write_to_disk(seq_list)
+
         with h5py.File(self._save_path, "r") as h5fi:
             logg.info(f"Preloading {self.name} features from {self.path}")
             for seq in tqdm(seq_list):
