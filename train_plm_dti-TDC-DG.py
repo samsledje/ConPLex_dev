@@ -14,10 +14,11 @@ from torch import nn
 from torch.utils.data import DataLoader
 from argparse import ArgumentParser
 from omegaconf import OmegaConf
+from src.utils import set_random_seed
 
 BASE_DIR = "."
 MODEL_BASE_DIR = f"{BASE_DIR}/best_models"
-DATA_DIR = f"{BASE_DIR}/nbdata"
+DATA_DIR = f"{BASE_DIR}/dataset/TDC"
 LOG_DIR = f"{BASE_DIR}/logs"
 os.makedirs(MODEL_BASE_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -85,7 +86,7 @@ parser.add_argument(
     default=1e-3,
     type=float,
     metavar="LR",
-    help="initial learning rate (default: 1e-4)",
+    help="initial learning rate (default: 1e-3)",
     dest="lr",
 )
 # parser.add_argument('--r', '--replicate', default=0, type=int, help='Replicate', dest='replicate')
@@ -94,6 +95,7 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
+set_random_seed(0)
 if args.linear and args.coembed:
     log("WARNING: --coembed and --linear both set; --linear will be ignored")
 device = torch.cuda.set_device(args.device)
@@ -130,10 +132,17 @@ train_val, test = (
 all_drugs = pd.concat([train_val, test]).Drug.values
 all_proteins = pd.concat([train_val, test]).Target.values
 
+print(
+    len(all_drugs),
+    len(all_proteins),
+    len(set(all_drugs)),
+    len(set(all_proteins)),
+)
+
 ### Pre-compute drug and protein representations
 import src.molecule as MOL_FEATS
 import src.protein as PROT_FEATS
-import src.architecture as ARCHITECTURES
+import src.architectures as ARCHITECTURES
 
 to_disk_path = f"{DATA_DIR}/tdc_bindingdb_patent_train"
 
@@ -269,6 +278,7 @@ for seed in range(5):
             loss_fct = torch.nn.MSELoss()
 
             loss = loss_fct(score, label)
+
             loss_history.append((epo, i, float(loss.cpu().detach().numpy())))
             wandb.log(
                 {

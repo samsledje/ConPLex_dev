@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 
 from src import featurizers
 from src.utils import config_logger
-from src.data import get_task_dir, DTIDataModule
+from src.data import get_task_dir, DTIDataModule, DUDEDataModule, TDCDataModule
 
 parser = ArgumentParser(description="Write DTI features to disk.")
 
@@ -18,6 +18,7 @@ parser.add_argument(
         "bindingdb",
         "davis",
         "dti_dg",
+        "dude",
     ],
     type=str,
     help="Task to generate features for",
@@ -69,9 +70,21 @@ def main():
         save_dir=task_dir
     )
 
-    datamodule = DTIDataModule(
-        task_dir, drug_featurizer, target_featurizer, device=device
-    )
+    if config.task == "dti_dg":
+        datamodule = TDCDataModule(
+            task_dir, drug_featurizer, target_featurizer, device=device
+        )
+    elif config.task == "dude":
+        datamodule = DUDEDataModule(
+            "within",
+            drug_featurizer,
+            target_featurizer,
+            device=device,
+        )
+    else:
+        datamodule = DTIDataModule(
+            task_dir, drug_featurizer, target_featurizer, device=device
+        )
     datamodule.prepare_data()
 
 

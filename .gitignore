@@ -8,6 +8,7 @@ wandb/
 nbdata/
 logs/
 configs/
+dataset/TDC/dti_dg_group/
 
 # File Types
 **.pk

@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import dscript
 import os
+import sys
 import pickle as pk
 import pandas as pd
 import pytorch_lightning as pl
@@ -13,7 +14,6 @@ from omegaconf import OmegaConf
 from functools import lru_cache
 from numpy.random import choice
 from torch.nn.utils.rnn import pad_sequence
-from tdc import utils as tdc_utils
 from tdc.benchmark_group import dti_dg_group
 
 from .featurizers import Featurizer
@@ -24,34 +24,43 @@ import typing as T
 logg = get_logger()
 
 
-def get_task_dir(task_name):
-    if task_name.lower() == "biosnap":
-        return Path("./dataset/BIOSNAP/full_data").resolve()
-    elif task_name.lower() == "bindingdb":
-        return Path("./dataset/BindingDB").resolve()
-    elif task_name.lower() == "davis":
-        return Path("./dataset/DAVIS").resolve()
-    elif task_name.lower() == "biosnap_prot":
-        return Path("./dataset/BIOSNAP/unseen_protein").resolve()
-    elif task_name.lower() == "biosnap_mol":
-        return Path("./dataset/BIOSNAP/unseen_drug").resolve()
-
-
-def drug_target_collate_fn(args, pad=False):
+def get_task_dir(task_name: str):
     """
-    Collate function for PyTorch data loader.
+    Get the path to data for each benchmark data set
+
+    :param task_name: Name of benchmark
+    :type task_name: str
+    """
+
+    task_paths = {
+        "biosnap": "./dataset/BIOSNAP/full_data",
+        "biosnap_prot": "./dataset/BIOSNAP/unseen_protein",
+        "biosnap_mol": "./dataset/BIOSNAP/unseen_drug",
+        "bindingdb": "./dataset/BindingDB",
+        "davis": "./dataset/DAVIS",
+        "dti_dg": "./dataset/TDC",
+        "dude": "./dataset/DUDe",
+    }
+
+    return Path(task_paths[task_name.lower()]).resolve()
+
+
+def drug_target_collate_fn(
+    args: T.Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+):
+    """
+    Collate function for PyTorch data loader -- turn a batch of triplets into a triplet of batches
 
     :param args: Batch of training samples with molecule, protein, and affinity
     :type args: Iterable[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
+    :return: Create a batch of examples
+    :rtype: T.Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
     """
     memb = [a[0] for a in args]
     pemb = [a[1] for a in args]
     labs = [a[2] for a in args]
 
-    if pad:
-        proteins = pad_sequence(pemb, batch_first=True)
-    else:
-        proteins = torch.stack(pemb, 0)
+    proteins = torch.stack(pemb, 0)
     molecules = torch.stack(memb, 0)
     affinities = torch.stack(labs, 0)
 
@@ -101,7 +110,7 @@ class BinaryDataset(Dataset):
     def __len__(self):
         return len(self.drugs)
 
-    def __getitem__(self, i):
+    def __getitem__(self, i: int):
         drug = self.drug_featurizer(self.drugs[i])
         target = self.target_featurizer(self.targets[i])
         label = torch.tensor(self.labels[i])
@@ -291,6 +300,7 @@ class TDCDataModule(pl.LightningDataModule):
         drug_featurizer: Featurizer,
         target_featurizer: Featurizer,
         device: torch.device = torch.device("cpu"),
+        seed: int = 0,
         batch_size: int = 32,
         shuffle: bool = True,
         num_workers: int = 0,
@@ -315,18 +325,29 @@ class TDCDataModule(pl.LightningDataModule):
         self._device = device
 
         self._data_dir = Path(data_dir)
-        self._train_path = Path("train.csv")
-        self._val_path = Path("val.csv")
-        self._test_path = Path("test.csv")
+        self._seed = seed
 
-        self._drug_column = "SMILES"
-        self._target_column = "Target Sequence"
-        self._label_column = "Label"
+        self._drug_column = "Drug"
+        self._target_column = "Target"
+        self._label_column = "Y"
 
         self.drug_featurizer = drug_featurizer
         self.target_featurizer = target_featurizer
 
     def prepare_data(self):
+
+        dg_group = dti_dg_group(path=self._data_dir)
+        dg_benchmark = dg_group.get("bindingdb_patent")
+
+        train_val, test = (
+            dg_benchmark["train_val"],
+            dg_benchmark["test"],
+        )
+
+        all_drugs = pd.concat([train_val, test])[self._drug_column].unique()
+        all_targets = pd.concat([train_val, test])[
+            self._target_column
+        ].unique()
 
         if (
             self.drug_featurizer.path.exists()
@@ -334,23 +355,6 @@ class TDCDataModule(pl.LightningDataModule):
         ):
             logg.warning("Drug and target featurizers already exist")
             return
-
-        df_train = pd.read_csv(
-            self._data_dir / self._train_path, **self._csv_kwargs
-        )
-        df_val = pd.read_csv(
-            self._data_dir / self._val_path, **self._csv_kwargs
-        )
-        df_test = pd.read_csv(
-            self._data_dir / self._test_path, **self._csv_kwargs
-        )
-        dataframes = [df_train, df_val, df_test]
-        all_drugs = pd.concat(
-            [i[self._drug_column] for i in dataframes]
-        ).unique()
-        all_targets = pd.concat(
-            [i[self._target_column] for i in dataframes]
-        ).unique()
 
         if self._device.type == "cuda":
             self.drug_featurizer.cuda(self._device)
@@ -367,16 +371,16 @@ class TDCDataModule(pl.LightningDataModule):
 
     def setup(self, stage: T.Optional[str] = None):
 
-        self.df_train = pd.read_csv(
-            self._data_dir / self._train_path, **self._csv_kwargs
+        dg_group = dti_dg_group(path=self._data_dir)
+        dg_benchmark = dg_group.get("bindingdb_patent")
+        dg_name = dg_benchmark["name"]
+
+        self.df_train, self.df_val = dg_group.get_train_valid_split(
+            benchmark=dg_name, split_type="default", seed=self._seed
         )
-        self.df_val = pd.read_csv(
-            self._data_dir / self._val_path, **self._csv_kwargs
-        )
-        self.df_test = pd.read_csv(
-            self._data_dir / self._test_path, **self._csv_kwargs
-        )
-        self._dataframes = [self.df_train, self.df_val, self.df_test]
+        self.df_test = dg_benchmark["test"]
+
+        self._dataframes = [self.df_train, self.df_val]
 
         all_drugs = pd.concat(
             [i[self._drug_column] for i in self._dataframes]
@@ -478,6 +482,20 @@ class DUDEDataModule(pl.LightningDataModule):
         self.drug_featurizer = drug_featurizer
         self.target_featurizer = target_featurizer
 
+    def prepare_data(self):
+        self.df_full = pd.read_csv(
+            self._data_dir / Path("full.tsv"), **self._csv_kwargs
+        )
+        all_drugs = self.df_full[self._drug_column].unique()
+        all_targets = self.df_full[self._target_column].unique()
+
+        if self._device.type == "cuda":
+            self.drug_featurizer.cuda(self._device)
+            self.target_featurizer.cuda(self._device)
+
+        self.drug_featurizer.write_to_disk(all_drugs)
+        self.target_featurizer.write_to_disk(all_targets)
+
     def setup(self, stage: T.Optional[str] = None):
 
         self.df_full = pd.read_csv(
@@ -518,10 +536,10 @@ class DUDEDataModule(pl.LightningDataModule):
             self.drug_featurizer.cuda(self._device)
             self.target_featurizer.cuda(self._device)
 
-        self.drug_featurizer.precompute(all_drugs)
+        self.drug_featurizer.preload(all_drugs)
         self.drug_featurizer.cpu()
 
-        self.target_featurizer.precompute(all_targets)
+        self.target_featurizer.preload(all_targets)
         self.target_featurizer.cpu()
 
         if stage == "fit" or stage is None:

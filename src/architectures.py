@@ -8,9 +8,12 @@ from types import SimpleNamespace
 from tqdm import tqdm
 from omegaconf import OmegaConf
 from functools import lru_cache
+from .utils import get_logger
 
 # from dpatch import PB_Embed
 from torch.nn.utils.rnn import pad_sequence
+
+logg = get_logger()
 
 #################################
 # Latent Space Distance Metrics #
@@ -88,28 +91,87 @@ class SimpleCoembedding(nn.Module):
         latent_dimension=1024,
         latent_activation=nn.ReLU,
         latent_distance="Cosine",
+        classify=True,
     ):
         super().__init__()
         self.drug_shape = drug_shape
         self.target_shape = target_shape
         self.latent_dimension = latent_dimension
+        self.do_classify = classify
 
         self.drug_projector = nn.Sequential(
             nn.Linear(self.drug_shape, latent_dimension), latent_activation()
         )
+        nn.init.xavier_normal_(self.drug_projector[0].weight)
 
         self.target_projector = nn.Sequential(
             nn.Linear(self.target_shape, latent_dimension), latent_activation()
         )
+        nn.init.xavier_normal_(self.target_projector[0].weight)
 
-        self.distance_metric = latent_distance
-        self.activator = DISTANCE_METRICS[self.distance_metric]()
+        if self.do_classify:
+            self.distance_metric = latent_distance
+            self.activator = DISTANCE_METRICS[self.distance_metric]()
+
+    def forward(self, drug, target):
+        if self.do_classify:
+            return self.classify(drug, target)
+        else:
+            return self.regress(drug, target)
+
+    def regress(self, drug, target):
+        drug_projection = self.drug_projector(drug)
+        target_projection = self.target_projector(target)
+
+        inner_prod = torch.bmm(
+            drug_projection.view(-1, 1, self.latent_dimension),
+            target_projection.view(-1, self.latent_dimension, 1),
+        ).squeeze()
+        return inner_prod
+
+    def classify(self, drug, target):
+        drug_projection = self.drug_projector(drug)
+        target_projection = self.target_projector(target)
+
+        distance = self.activator(drug_projection, target_projection)
+        sigmoid_f = torch.nn.Sigmoid()
+        return sigmoid_f(distance).squeeze()
+
+
+class AffinityCoembedInner(nn.Module):
+    def __init__(
+        self, mol_emb_size, prot_emb_size, latent_size=1024, activation=nn.ReLU
+    ):
+        super().__init__()
+        self.mol_emb_size = mol_emb_size
+        self.prot_emb_size = prot_emb_size
+        self.latent_size = latent_size
+
+        self.mol_projector = nn.Sequential(
+            nn.Linear(self.mol_emb_size, latent_size), activation()
+        )
+        nn.init.xavier_uniform(self.mol_projector[0].weight)
+
+        print(self.mol_projector[0].weight)
+
+        self.prot_projector = nn.Sequential(
+            nn.Linear(self.prot_emb_size, latent_size), activation()
+        )
+        nn.init.xavier_uniform(self.prot_projector[0].weight)
 
     def forward(self, mol_emb, prot_emb):
-        mol_proj = self.drug_projector(mol_emb)
-        prot_proj = self.target_projector(prot_emb)
-
-        return self.activator(mol_proj, prot_proj)
+        mol_proj = self.mol_projector(mol_emb)
+        prot_proj = self.prot_projector(prot_emb)
+        print(mol_proj)
+        print(prot_proj)
+        y = torch.bmm(
+            mol_proj.view(-1, 1, self.latent_size),
+            prot_proj.view(-1, self.latent_size, 1),
+        ).squeeze()
+        print("HERE")
+        print(y)
+        return y
+        # return torch.inner(mol_proj, prot_proj).squeeze()
 
 
 class CosineBatchNorm(nn.Module):
@@ -308,33 +370,6 @@ class AffinityEmbedConcat(nn.Module):
 
 
 SimplePLMModel = AffinityEmbedConcat
-
-
-class AffinityCoembedInner(nn.Module):
-    def __init__(
-        self, mol_emb_size, prot_emb_size, latent_size=1024, activation=nn.ReLU
-    ):
-        super().__init__()
-        self.mol_emb_size = mol_emb_size
-        self.prot_emb_size = prot_emb_size
-        self.latent_size = latent_size
-
-        self.mol_projector = nn.Sequential(
-            nn.Linear(self.mol_emb_size, latent_size), activation()
-        )
-
-        self.prot_projector = nn.Sequential(
-            nn.Linear(self.prot_emb_size, latent_size), activation()
-        )
-
-    def forward(self, mol_emb, prot_emb):
-        mol_proj = self.mol_projector(mol_emb)
-        prot_proj = self.prot_projector(prot_emb)
-        return torch.bmm(
-            mol_proj.view(-1, 1, self.latent_size),
-            prot_proj.view(-1, self.latent_size, 1),
-        ).squeeze()
-        # return torch.inner(mol_proj, prot_proj).squeeze()
 
 
 class AffinityConcatLinear(nn.Module):

@@ -32,7 +32,7 @@ param_grid = ParameterGrid(
         "task": tasks,
         "drug_featurizer": drug_featurizers,
         "target_featurizer": target_featurizers,
-        "replicate": [1, 2, 3, 4, 5],
+        "replicate": [0, 1, 2, 3, 4],
     }
 )
 
@@ -44,12 +44,12 @@ defaults = {
     "batch_size": 32,
     "shuffle": True,
     "num_workers": 0,
-    "model_save_dir": "./best_models",
     "epochs": 50,
     "every_n_val": 1,
     "lr": 1e-4,
     "clr": 1e-5,
     "verbosity": 3,
+    "wandb_proj": "DTI_Benchmarking",
 }
 
 N_GPUS = 8
@@ -63,16 +63,18 @@ for i, param in enumerate(param_sets):
     oc = OmegaConf.structured(param)
     oc.device = i % N_GPUS
     oc.update(defaults)
+    oc.model_save_dir = f"./best_models/{param_name}"
+    oc.log_file = f"{oc.model_save_dir}/log.txt"
 
     filename = f"configs/config_{param_name}.yaml"
     config_files[param_name] = filename
     OmegaConf.save(config=oc, f=filename)
 
-base_cmd = "python train_DTI.py --wandb-proj {} --exp-id {} --config {}"
+base_cmd = "python train_DTI.py --config {} --exp-id {} "
 list_file = "configs/benchmark_sweep_list.txt"
 with open(list_file, "w+") as f:
     for key, fi in config_files.items():
-        cmd = base_cmd.format(wandb_project, key, fi)
+        cmd = base_cmd.format(key, fi)
         f.write(f"{cmd}\n")
 
 bash_file = "configs/benchmark_sweep_run.sh"

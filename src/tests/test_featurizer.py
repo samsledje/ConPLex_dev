@@ -1,4 +1,8 @@
 import torch
+import os
+import shutil
+from pathlib import Path
+
 from ..featurizers import (
     NullFeaturizer,
     BeplerBergerFeaturizer,
@@ -8,6 +12,9 @@ from ..featurizers import (
 
 
 def test_featurizer():
+    save_dir = Path(__file__).parent / Path("features")
+    os.makedirs(save_dir, exist_ok=True)
+
     seqs = [
         "MTQMSQVQELFHEAAQQDALAQPQPWWKTQLFMWEPVLFGTWDGVF",
         "MAANSTSDLHTPGTQLSVADIIVITVYFALNVAVGIWSSCRASRNT",
@@ -25,10 +32,12 @@ def test_featurizer():
     else:
         device = torch.device("cpu")
 
-    g = ProtBertFeaturizer()
+    g = ProtBertFeaturizer(save_dir=save_dir)
     g.cuda(device)
     g.preload(seqs)
 
-    h = MorganFeaturizer()
+    h = MorganFeaturizer(save_dir=save_dir)
     h.cuda(device)
     h.preload(drugs)
+
+    shutil.rmtree(save_dir)

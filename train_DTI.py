@@ -1,20 +1,10 @@
 import copy
 from time import time
+import os
 import sys
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.metrics import (
-    roc_auc_score,
-    average_precision_score,
-    f1_score,
-    roc_curve,
-    confusion_matrix,
-    precision_score,
-    recall_score,
-    auc,
-    precision_recall_curve,
-)
 from torch import nn
 from torch.autograd import Variable
 from torch.utils import data
@@ -26,26 +16,41 @@ from argparse import ArgumentParser
 
 import wandb
 from omegaconf import OmegaConf
+from pathlib import Path
 
 from src import featurizers
-from src import architectures
-from src.utils import set_random_seed, config_logger, sigmoid_cosine_distance_p
-from src.data import get_task_dir, DTIDataModule, DUDEDataModule
+from src.architectures import SimpleCoembedding
+from src.data import get_task_dir, DTIDataModule, TDCDataModule, DUDEDataModule
+from src.utils import (
+    set_random_seed,
+    config_logger,
+    get_logger,
+    sigmoid_cosine_distance_p,
+)
+
+logg = get_logger()
 
 parser = ArgumentParser(description="PLM_DTI Training.")
 parser.add_argument(
     "--exp-id", required=True, help="Experiment ID", dest="experiment_id"
 )
 parser.add_argument("--config", required=True, help="YAML config file")
+
 parser.add_argument(
     "--wandb-proj",
-    required=True,
     help="Weights and Biases Project",
     dest="wandb_proj",
 )
 parser.add_argument(
     "--task",
-    choices=["biosnap", "bindingdb", "davis", "biosnap_prot", "biosnap_mol"],
+    choices=[
+        "biosnap",
+        "bindingdb",
+        "davis",
+        "biosnap_prot",
+        "biosnap_mol",
+        "dti_dg",
+    ],
     type=str,
     help="Task name. Could be biosnap, bindingdb, davis, biosnap_prot, biosnap_mol.",
 )
@@ -88,27 +93,39 @@ parser.add_argument(
 )
 
 
-def test(model, data_generator, metrics, device=None):
+def test(model, data_generator, metrics, device=None, classify=True):
 
     if device is None:
         device = torch.device("cpu")
 
-    for k, metric in metrics.items():
-        metric.reset()
-        metrics[k] = metric.to(device)
+    metric_dict = {}
+
+    for k, met_class in metrics.items():
+        met_instance = met_class()
+        met_instance.to(device)
+        met_instance.reset()
+        metric_dict[k] = met_instance
 
     model.eval()
 
     for i, batch in tqdm(enumerate(data_generator), total=len(data_generator)):
 
         pred, label = step(model, batch, device)
+        if classify:
+            label = label.int()
+        else:
+            label = label.float()
 
-        for _, metric in metrics.items():
-            metric(pred, label.int())
+        for _, met_instance in metric_dict.items():
+            met_instance(pred, label)
 
-    results = {k: metric.compute() for (k, metric) in metrics.items()}
-    for metric in metrics.values():
-        metrics[k] = metric.to("cpu")
+    results = {}
+    for (k, met_instance) in metric_dict.items():
+        res = met_instance.compute()
+        results[k] = res
+
+    for met_instance in metric_dict.values():
+        met_instance.to("cpu")
 
     return results
 
@@ -120,10 +137,8 @@ def step(model, batch, device=None):
 
     drug, target, label = batch
 
-    sigmoid = torch.nn.Sigmoid()
-    score = model(drug.to(device), target.to(device))
+    pred = model(drug.to(device), target.to(device))
     label = Variable(torch.from_numpy(np.array(label)).float()).to(device)
-    pred = torch.squeeze(sigmoid(score))
     return pred, label
 
 
@@ -141,6 +156,11 @@ def contrastive_step(model, batch, device=None):
     return anchor_projection, positive_projection, negative_projection
 
 
+def wandb_log(m, do_wandb=True):
+    if do_wandb:
+        wandb.log(m)
+
+
 def main():
     # Get configuration
     args = parser.parse_args()
@@ -148,14 +168,20 @@ def main():
     arg_overrides = {k: v for k, v in vars(args).items() if v is not None}
     config.update(arg_overrides)
 
+    save_dir = config.get("model_save_dir", ".")
+    os.makedirs(save_dir, exist_ok=True)
+
     # Logging
-    logg = config_logger(
-        None,
+    if "log_file" not in config:
+        config.log_file = None
+    else:
+        config.log_file = Path(config.outfile)
+    config_logger(
+        config.log_file,
         "%(asctime)s [%(levelname)s] %(message)s",
         config.verbosity,
         use_stdout=True,
     )
-    logg.propagate = False
 
     # Set CUDA device
     device_no = config.device
@@ -164,7 +190,7 @@ def main():
     logg.info(f"Using CUDA device {device}")
 
     # Set random state
-    logg.debug("Setting random state")
+    logg.debug(f"Setting random state {config.replicate}")
     set_random_seed(config.replicate)
 
     # Load DataModule
@@ -179,8 +205,18 @@ def main():
     )
 
     if config.task == "dti_dg":
-        datamodule = None
+        config.classify = False
+        config.watch_metric = "val/PCC"
+        datamodule = TDCDataModule(
+            task_dir,
+            drug_featurizer,
+            target_featurizer,
+            device=device,
+            seed=config.replicate,
+        )
     else:
+        config.classify = True
+        config.watch_metric = "val/AUPR"
         datamodule = DTIDataModule(
             task_dir, drug_featurizer, target_featurizer, device=device
         )
@@ -196,11 +232,11 @@ def main():
     if not config.no_contrastive:
         logg.info("Loading contrastive data (DUDE)")
         dude_drug_featurizer = getattr(featurizers, config.drug_featurizer)(
-            save_dir="./dataset/DUDe/"
+            save_dir=get_task_dir("DUDe")
         )
         dude_target_featurizer = getattr(
             featurizers, config.target_featurizer
-        )(save_dir="./dataset/DUDe/")
+        )(save_dir=get_task_dir("DUDe"))
 
         contrastive_datamodule = DUDEDataModule(
             config.contrastive_split,
@@ -208,57 +244,78 @@ def main():
             dude_target_featurizer,
             device=device,
         )
+        contrastive_datamodule.prepare_data()
         contrastive_datamodule.setup(stage="fit")
         contrastive_generator = contrastive_datamodule.train_dataloader()
 
     config.drug_shape = drug_featurizer.shape
     config.target_shape = target_featurizer.shape
 
-    # Create model
-    logg.info("Creating model")
-    if "checkpoint" not in config:
-        model = getattr(architectures, "SimpleCoembedding")(
-            config.drug_shape,
-            config.target_shape,
-            latent_dimension=config.latent_dimension,
-            latent_distance=config.latent_distance,
-        )
-    else:
-        model = torch.load(config.checkpoint)
+    # Model
+    logg.info("Initializing model")
+    model = SimpleCoembedding(
+        config.drug_shape,
+        config.target_shape,
+        latent_dimension=config.latent_dimension,
+        latent_distance=config.latent_distance,
+        classify=config.classify,
+    )
+    if "checkpoint" in config:
+        state_dict = torch.load(config.checkpoint)
+        model.load_state_dict(state_dict)
 
     model = model.to(device)
+    logg.info(model)
 
+    # Optimizers
+    logg.info("Initializing optimizers")
     opt = torch.optim.Adam(model.parameters(), lr=config.lr)
     if not config.no_contrastive:
         opt_contrastive = torch.optim.Adam(model.parameters(), lr=config.clr)
 
-    # Initialize wandb
-    logg.debug(f"Initializing wandb project {config.wandb_proj}")
-    wandb.init(
-        project=config.wandb_proj,
-        name=config.experiment_id,
-        config=dict(config),
-    )
-    wandb.watch(model, log_freq=100)
-
     # Metrics
-    logg.debug("Creating metrics")
-    max_aupr = 0
+    logg.debug("Initializing metrics")
+    max_metric = 0
     triplet_margin = 0
     model_max = copy.deepcopy(model)
-    model_save_dir = config.get("model_save_dir", ".")
 
-    val_metrics = {
-        "val/AUPR": torchmetrics.AveragePrecision(),
-        "val/AUROC": torchmetrics.AUROC(),
-        "val/F1": torchmetrics.F1Score(),
-    }
+    if config.task == "dti_dg":
+        loss_fct = torch.nn.MSELoss()
+        val_metrics = {
+            "val/MSE": torchmetrics.MeanSquaredError,
+            "val/PCC": torchmetrics.PearsonCorrCoef,
+        }
 
-    test_metrics = {
-        "test/AUPR": torchmetrics.AveragePrecision(),
-        "test/AUROC": torchmetrics.AUROC(),
-        "test/F1": torchmetrics.F1Score(),
-    }
+        test_metrics = {
+            "test/MSE": torchmetrics.MeanSquaredError,
+            "test/PCC": torchmetrics.PearsonCorrCoef,
+        }
+    else:
+        loss_fct = torch.nn.BCELoss()
+        val_metrics = {
+            "val/AUPR": torchmetrics.AveragePrecision,
+            "val/AUROC": torchmetrics.AUROC,
+            "val/F1": torchmetrics.F1Score,
+        }
+
+        test_metrics = {
+            "test/AUPR": torchmetrics.AveragePrecision,
+            "test/AUROC": torchmetrics.AUROC,
+            "test/F1": torchmetrics.F1Score,
+        }
+
+    # Initialize wandb
+    do_wandb = "wanb_proj" in config
+    if do_wandb:
+        logg.debug(f"Initializing wandb project {config.wandb_proj}")
+        wandb.init(
+            project=config.wandb_proj,
+            name=config.experiment_id,
+            config=dict(config),
+        )
+        wandb.watch(model, log_freq=100)
+    logg.info("Config:")
+    logg.info(dict(config))
 
     logg.info("Beginning Training")
 
@@ -272,17 +329,17 @@ def main():
 
         for i, batch in enumerate(training_generator):
 
-            loss_fct = torch.nn.BCELoss()
             pred, label = step(model, batch, device)
             loss = loss_fct(pred, label)
 
-            wandb.log(
+            wandb_log(
                 {
                     "epoch": epo + 1,
                     "train/loss": loss,
                     "step": (epo * tg_len * config.batch_size)
                     + (i * config.batch_size),
-                }
+                },
+                do_wandb,
             )
 
             opt.zero_grad()
@@ -310,7 +367,10 @@ def main():
                     anchor, positive, negative
                 )
 
-                wandb.log({"epoch": epo + 1, "train/c_loss": contrastive_loss})
+                wandb_log(
+                    {"epoch": epo + 1, "train/c_loss": contrastive_loss},
+                    do_wandb,
+                )
 
                 opt_contrastive.zero_grad()
                 contrastive_loss.backward()
@@ -323,26 +383,31 @@ def main():
             with torch.set_grad_enabled(False):
 
                 val_results = test(
-                    model, validation_generator, val_metrics, device
+                    model,
+                    validation_generator,
+                    val_metrics,
+                    device,
+                    config.classify,
                 )
                 val_results["epoch"] = epo
                 val_results["Charts/epoch_time"] = (
                     epoch_time_end - epoch_time_start
                 ) / config.every_n_val
 
-                wandb.log(val_results)
+                wandb_log(val_results, do_wandb)
 
-                if val_results["val/AUPR"] > max_aupr:
+                if val_results[config.watch_metric] > max_metric:
                     model_max = copy.deepcopy(model)
-                    max_aupr = val_results["val/AUPR"]
+                    max_metric = val_results[config.watch_metric]
                     torch.save(
-                        model_max,
-                        f"{model_save_dir}/{config.experiment_id}_best_model_epoch{epo}.sav",
+                        model_max.state_dict(),
+                        f"{save_dir}/{config.experiment_id}_best_model_epoch{epo}.pt",
                     )
 
-                logg.info(
-                    f"Validation at Epoch {epo + 1} AUROC: {val_results['val/AUROC']}, AUPR: {val_results['val/AUPR']}, F1: {val_results['val/F1']}"
-                )
+                logg.info(f"Validation at Epoch {epo + 1}")
+                for k, v in val_results.items():
+                    if not k.startswith("_"):
+                        logg.info(f"{k}: {v}")
 
     end_time = time()
     logg.info("Beginning testing")
@@ -351,19 +416,23 @@ def main():
             model_max = model_max.eval()
 
             test_start_time = time()
-            test_results = test(model, testing_generator, test_metrics, device)
+            test_results = test(
+                model, testing_generator, test_metrics, device, config.classify
+            )
             test_end_time = time()
 
             test_results["test/eval_time"] = test_end_time - test_start_time
             test_results["Charts/wall_clock_time"] = end_time - start_time
-            wandb.log(test_results)
+            wandb_log(test_results, do_wandb)
 
-            logg.info(
-                f"Test AUROC: {test_results['test/AUROC']}, AUPR: {test_results['test/AUPR']}, F1: {test_results['test/F1']}"
-            )
+            logg.info("Final Testing")
+            for k, v in test_results.items():
+                if not k.startswith("_"):
+                    logg.info(f"{k}: {v}")
+
             torch.save(
-                model_max,
-                f"{model_save_dir}/{config.experiment_id}_best_model.sav",
+                model_max.state_dict(),
+                f"{save_dir}/{config.experiment_id}_best_model.pt",
             )
 
     except Exception as e:

@@ -8,9 +8,14 @@ from tqdm import tqdm
 from pathlib import Path
 from functools import lru_cache
 
-from ..utils import get_logger
+from ..utils import get_logger, load_hdf5_parallel
 
 logg = get_logger()
+
+
+def sanitize_string(s):
+    return s.replace("/", "|")
+
 
 ###################
 # Base Featurizer #
@@ -108,22 +113,33 @@ class Featurizer:
         with h5py.File(self._save_path, "a") as h5fi:
             logg.info(f"Writing {self.name} features to {self.path}")
             for seq in tqdm(seq_list):
-                dset = h5fi.require_dataset(seq, (self._shape,), np.float32)
+                seq_h5 = sanitize_string(seq)
+                if seq_h5 in h5fi:
+                    logg.warning(f"{seq} already in h5file")
+                dset = h5fi.require_dataset(seq_h5, (self._shape,), np.float32)
                 feats = self.transform(seq)
                 dset[:] = feats.cpu().numpy()
 
     def preload(self, seq_list: T.List[str]) -> None:
+        logg.info(f"Preloading {self.name} features from {self.path}")
+
         if not self._save_path.exists():
             self.write_to_disk(seq_list)
 
         with h5py.File(self._save_path, "r") as h5fi:
-            logg.info(f"Preloading {self.name} features from {self.path}")
             for seq in tqdm(seq_list):
-                feats = torch.from_numpy(h5fi[seq][:])
+                seq_h5 = sanitize_string(seq)
+                feats = torch.from_numpy(h5fi[seq_h5][:])
                 if self._on_cuda:
                     feats = feats.to(self.device)
 
                 self._features[seq] = feats
+
+        # seqs_sanitized = [sanitize_string(s) for s in seq_list]
+        # feat_dict = load_hdf5_parallel(self._save_path, seqs_sanitized,n_jobs=32)
+        # self._features.update(feat_dict)
+
+        self._update_device(self.device)
         self._preloaded = True
 
 

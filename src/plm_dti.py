@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import dscript
 import os
+import sys
 import pickle as pk
 import pandas as pd
 from types import SimpleNamespace
@@ -12,7 +13,7 @@ from functools import lru_cache
 from numpy.random import choice
 from torch.nn.utils.rnn import pad_sequence
 
-from . import architecture as dti_architecture
+from . import architectures as dti_architecture
 from . import protein as protein_features
 from . import molecule as molecule_features
 
@@ -149,6 +150,8 @@ def get_dataloaders_dude(
 
     all_smiles = list(train_dude.Molecule_SMILES.unique())
     all_sequences = list(train_dude.Target_Seq.unique())
+    print(len(all_smiles), len(all_sequences))
+    # sys.exit(0)
     try:
         mol_feats = getattr(molecule_features, mol_feat)()
     except AttributeError:
