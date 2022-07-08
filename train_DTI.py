@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import pandas as pd
 import torch
+import json
 from torch import nn
 from torch.autograd import Variable
 from torch.utils import data
@@ -26,6 +27,7 @@ from src.utils import (
     config_logger,
     get_logger,
     sigmoid_cosine_distance_p,
+    get_featurizer,
 )
 
 logg = get_logger()
@@ -197,11 +199,9 @@ def main():
     logg.info("Preparing DataModule")
     task_dir = get_task_dir(config.task)
 
-    drug_featurizer = getattr(featurizers, config.drug_featurizer)(
-        save_dir=task_dir
-    )
-    target_featurizer = getattr(featurizers, config.target_featurizer)(
-        save_dir=task_dir
+    drug_featurizer = get_featurizer(config.drug_featurizer, save_dir=task_dir)
+    target_featurizer = get_featurizer(
+        config.target_featurizer, save_dir=task_dir
     )
 
     if config.task == "dti_dg":
@@ -231,12 +231,12 @@ def main():
 
     if not config.no_contrastive:
         logg.info("Loading contrastive data (DUDE)")
-        dude_drug_featurizer = getattr(featurizers, config.drug_featurizer)(
-            save_dir=get_task_dir("DUDe")
+        dude_drug_featurizer = get_featurizer(
+            config.drug_featurizer, save_dir=get_task_dir("DUDe")
         )
-        dude_target_featurizer = getattr(
-            featurizers, config.target_featurizer
-        )(save_dir=get_task_dir("DUDe"))
+        dude_target_featurizer = get_featurizer(
+            config.target_featurizer, save_dir=get_task_dir("DUDe")
+        )
 
         contrastive_datamodule = DUDEDataModule(
             config.contrastive_split,
@@ -274,7 +274,7 @@ def main():
         opt_contrastive = torch.optim.Adam(model.parameters(), lr=config.clr)
 
     # Metrics
-    logg.debug("Initializing metrics")
+    logg.info("Initializing metrics")
     max_metric = 0
     triplet_margin = 0
     model_max = copy.deepcopy(model)
@@ -305,7 +305,7 @@ def main():
         }
 
     # Initialize wandb
-    do_wandb = "wanb_proj" in config
+    do_wandb = "wandb_proj" in config
     if do_wandb:
         logg.debug(f"Initializing wandb project {config.wandb_proj}")
         wandb.init(
@@ -315,7 +315,7 @@ def main():
         )
         wandb.watch(model, log_freq=100)
     logg.info("Config:")
-    logg.info(dict(config))
+    logg.info(json.dumps(dict(config), indent=4))
 
     logg.info("Beginning Training")
 
@@ -399,10 +399,12 @@ def main():
                 if val_results[config.watch_metric] > max_metric:
                     model_max = copy.deepcopy(model)
                     max_metric = val_results[config.watch_metric]
+                    model_save_path = f"{save_dir}/{config.experiment_id}_best_model_epoch{epo:02}.pt"
                     torch.save(
                         model_max.state_dict(),
-                        f"{save_dir}/{config.experiment_id}_best_model_epoch{epo}.pt",
+                        model_save_path,
                     )
+                    logg.info(f"Saving checkpoint model to {model_save_path}")
 
                 logg.info(f"Validation at Epoch {epo + 1}")
                 for k, v in val_results.items():
@@ -430,10 +432,14 @@ def main():
                 if not k.startswith("_"):
                     logg.info(f"{k}: {v}")
 
+            model_save_path = (
+                f"{save_dir}/{config.experiment_id}_best_model.pt"
+            )
             torch.save(
                 model_max.state_dict(),
-                f"{save_dir}/{config.experiment_id}_best_model.pt",
+                model_save_path,
             )
+            logg.info(f"Saving final model to {model_save_path}")
 
     except Exception as e:
         logg.error(f"Testing failed with exception {e}")
@@ -441,7 +447,4 @@ def main():
     return model_max
 
 
-s = time()
 best_model = main()
-e = time()
-print(e - s)

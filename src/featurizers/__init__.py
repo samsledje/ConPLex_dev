@@ -2,6 +2,7 @@ from .base import (
     Featurizer,
     NullFeaturizer,
     RandomFeaturizer,
+    ConcatFeaturizer,
 )
 
 from .protein import (
@@ -15,4 +16,6 @@ from .protein import (
 
 from .molecule import (
     MorganFeaturizer,
+    Mol2VecFeaturizer,
+    MolRFeaturizer,
 )

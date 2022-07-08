@@ -3,8 +3,13 @@ import os
 import torch
 from pathlib import Path
 from .base import Featurizer
+from ..utils import get_logger
 
-MODEL_CACHE_DIR = Path("./models")
+logg = get_logger()
+
+MODEL_CACHE_DIR = Path(
+    "/afs/csail.mit.edu/u/s/samsl/Work/Adapting_PLM_DTI/models"
+)
 os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
 
 
@@ -218,32 +223,60 @@ class ProtT5XLUniref50Featurizer(Featurizer):
         return seq_emb.mean(0)
 
 
+class CNN2Layers(torch.nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        feature_channels,
+        kernel_size,
+        stride,
+        padding,
+        dropout,
+    ):
+        super(CNN2Layers, self).__init__()
+        self.conv1 = torch.nn.Sequential(
+            torch.nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=feature_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+            ),
+            torch.nn.ELU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Conv1d(
+                in_channels=feature_channels,
+                out_channels=3,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+            ),
+        )
+
+    def forward(self, x):
+        x = self.conv1(x)
+        return torch.squeeze(x)
+
+
 class BindPredict21Featurizer(Featurizer):
     def __init__(self, save_dir: Path = Path().absolute()):
         super().__init__("BindPredict21", 128, save_dir)
 
-        BINDPREDICT_DIR = (
-            "/afs/csail.mit.edu/u/s/samsl/Work/Applications/bindPredict"
+        self._model_path = (
+            f"{MODEL_CACHE_DIR}/bindpredict_saved/checkpoint5.pt"
         )
-        model_prefix = f"{BINDPREDICT_DIR}/trained_models/checkpoint"
-        sys.path.append(BINDPREDICT_DIR)
-        from architectures import CNN2Layers
 
         self._max_len = 1024
 
         self._p5tf = ProtT5XLUniref50Featurizer(save_dir=save_dir)
         self._md = CNN2Layers(1024, 128, 5, 1, 2, 0)
         self._md.load_state_dict(
-            torch.load(f"{model_prefix}5.pt", map_location="cuda:1")[
-                "state_dict"
-            ]
+            torch.load(self._model_path, map_location="cpu")["state_dict"]
         )
         self._md = self._md.eval()
         self._cnn_first = self._md.conv1[:2]
 
-        self._register_cuda(
-            "pt5_featurizer", self._p5tf, lambda x, d: x.cuda(d)
-        )
+        self._register_cuda("pt5_featurizer", self._p5tf)
         self._register_cuda("model", self._md)
         self._register_cuda("cnn", self._cnn_first)
 

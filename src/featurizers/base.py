@@ -93,6 +93,11 @@ class Featurizer:
     def device(self) -> torch.device:
         return self._device
 
+    def to(self, device: torch.device) -> Featurizer:
+        self._update_device(device)
+        self._on_cuda = device.type == "cuda"
+        return self
+
     def cuda(self, device: torch.device) -> Featurizer:
         """
         Perform model computations on CUDA, move saved embeddings to CUDA device
@@ -128,8 +133,12 @@ class Featurizer:
 
         with h5py.File(self._save_path, "r") as h5fi:
             for seq in tqdm(seq_list):
-                seq_h5 = sanitize_string(seq)
-                feats = torch.from_numpy(h5fi[seq_h5][:])
+                if seq in h5fi:
+                    seq_h5 = sanitize_string(seq)
+                    feats = torch.from_numpy(h5fi[seq_h5][:])
+                else:
+                    feats = self.transform(seq)
+
                 if self._on_cuda:
                     feats = feats.to(self.device)
 
@@ -143,22 +152,60 @@ class Featurizer:
         self._preloaded = True
 
 
+class ConcatFeaturizer(Featurizer):
+    def __init__(
+        self,
+        featurizer_list: T.Iterable[Featurizer],
+        save_dir: Path = Path().absolute(),
+    ):
+        super().__init__("ConcatFeaturizer", None, save_dir)
+
+        self._featurizer_list = [f(save_dir=save_dir) for f in featurizer_list]
+        for f in self._featurizer_list:
+            self._register_cuda(f.name, f)
+
+        self._shape = sum([f.shape for f in self._featurizer_list])
+
+    def _transform(self, seq: str) -> torch.Tensor:
+        feats = []
+        for featurizer in self._featurizer_list:
+            feats.append(featurizer(seq))
+        return torch.concat(feats)
+
+    def write_to_disk(self, seq_list: T.List[str]) -> None:
+        for featurizer in self._featurizer_list:
+            if not featurizer.path.exists():
+                featurizer.write_to_disk(seq_list)
+
+    def preload(self, seq_list: T.List[str]) -> None:
+        for featurizer in self._featurizer_list:
+            featurizer.preload(seq_list)
+
+
 ###################
 # Null and Random #
 ###################
 
 
 class NullFeaturizer(Featurizer):
-    def __init__(self, shape: int = 1024):
-        super().__init__(f"Null{shape}", shape)
+    def __init__(
+        self,
+        shape: int = 1024,
+        save_dir: Path = Path().absolute(),
+    ):
+        super().__init__(f"Null{shape}", shape, save_dir)
 
     def _transform(self, seq: str) -> torch.Tensor:
         return torch.zeros(self.shape)
 
 
 class RandomFeaturizer(Featurizer):
-    def __init__(self, shape: int = 1024):
-        super().__init__(f"Random{shape}", shape)
+    def __init__(
+        self,
+        shape: int = 1024,
+        save_dir: Path = Path().absolute(),
+    ):
+        super().__init__(f"Random{shape}", shape, save_dir)
 
     def _transform(self, seq: str) -> torch.Tensor:
         return torch.rand(self.shape)
