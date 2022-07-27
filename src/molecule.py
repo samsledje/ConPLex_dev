@@ -10,7 +10,7 @@ from tqdm import tqdm
 from omegaconf import OmegaConf
 from functools import lru_cache
 from torch.nn.utils.rnn import pad_sequence
-from models.molR_featurize import MolEFeaturizer, GraphDataset
+from .featurizers.molecule import MolEFeaturizer, GraphDataset
 import logging
 
 from rdkit import Chem, DataStructs

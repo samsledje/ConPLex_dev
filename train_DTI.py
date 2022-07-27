@@ -20,14 +20,20 @@ from omegaconf import OmegaConf
 from pathlib import Path
 
 from src import featurizers
-from src.architectures import SimpleCoembedding
-from src.data import get_task_dir, DTIDataModule, TDCDataModule, DUDEDataModule
+from src import architectures as model_types
+from src.data import (
+    get_task_dir,
+    DTIDataModule,
+    TDCDataModule,
+    DUDEDataModule,
+    EnzPredDataModule,
+)
 from src.utils import (
     set_random_seed,
     config_logger,
     get_logger,
-    sigmoid_cosine_distance_p,
     get_featurizer,
+    sigmoid_cosine_distance_p,
 )
 
 logg = get_logger()
@@ -56,7 +62,7 @@ parser.add_argument(
     type=str,
     help="Task name. Could be biosnap, bindingdb, davis, biosnap_prot, biosnap_mol.",
 )
-parser.add_argument("--no-contrastive", action="store_true")
+parser.add_argument("--contrastive", action="store_true")
 
 parser.add_argument(
     "--drug-featurizer", help="Drug featurizer", dest="drug_featurizer"
@@ -88,7 +94,7 @@ parser.add_argument(
     "--d", "--device", type=int, help="CUDA device", dest="device"
 )
 parser.add_argument(
-    "--verbosity", type=int, help="Level to log at", dest="verbosity"
+    "--verbosity", type=int, help="Level at which to log", dest="verbosity"
 )
 parser.add_argument(
     "--checkpoint", default=None, help="Model weights to start from"
@@ -176,8 +182,6 @@ def main():
     # Logging
     if "log_file" not in config:
         config.log_file = None
-    else:
-        config.log_file = Path(config.outfile)
     config_logger(
         config.log_file,
         "%(asctime)s [%(levelname)s] %(message)s",
@@ -206,19 +210,41 @@ def main():
 
     if config.task == "dti_dg":
         config.classify = False
-        config.watch_metric = "val/PCC"
+        config.watch_metric = "val/pcc"
         datamodule = TDCDataModule(
             task_dir,
             drug_featurizer,
             target_featurizer,
             device=device,
             seed=config.replicate,
+            batch_size=config.batch_size,
+            shuffle=config.shuffle,
+            num_workers=config.num_workers,
+        )
+    elif config.task in EnzPredDataModule.dataset_list():
+        config.classify = True
+        config.watch_metric = "val/aupr"
+        datamodule = EnzPredDataModule(
+            task_dir,
+            drug_featurizer,
+            target_featurizer,
+            device=device,
+            seed=config.replicate,
+            batch_size=config.batch_size,
+            shuffle=config.shuffle,
+            num_workers=config.num_workers,
         )
     else:
         config.classify = True
-        config.watch_metric = "val/AUPR"
+        config.watch_metric = "val/aupr"
         datamodule = DTIDataModule(
-            task_dir, drug_featurizer, target_featurizer, device=device
+            task_dir,
+            drug_featurizer,
+            target_featurizer,
+            device=device,
+            batch_size=config.batch_size,
+            shuffle=config.shuffle,
+            num_workers=config.num_workers,
         )
     datamodule.prepare_data()
     datamodule.setup()
@@ -229,7 +255,7 @@ def main():
     validation_generator = datamodule.val_dataloader()
     testing_generator = datamodule.test_dataloader()
 
-    if not config.no_contrastive:
+    if config.contrastive:
         logg.info("Loading contrastive data (DUDE)")
         dude_drug_featurizer = get_featurizer(
             config.drug_featurizer, save_dir=get_task_dir("DUDe")
@@ -243,17 +269,23 @@ def main():
             dude_drug_featurizer,
             dude_target_featurizer,
             device=device,
+            batch_size=config.contrastive_batch_size,
+            shuffle=config.shuffle,
+            num_workers=config.num_workers,
         )
         contrastive_datamodule.prepare_data()
         contrastive_datamodule.setup(stage="fit")
         contrastive_generator = contrastive_datamodule.train_dataloader()
+
+        logg.debug(next(contrastive_generator))
+        sys.exit(1)
 
     config.drug_shape = drug_featurizer.shape
     config.target_shape = target_featurizer.shape
 
     # Model
     logg.info("Initializing model")
-    model = SimpleCoembedding(
+    model = getattr(model_types, config.model_architecture)(
         config.drug_shape,
         config.target_shape,
         latent_dimension=config.latent_dimension,
@@ -270,38 +302,39 @@ def main():
     # Optimizers
     logg.info("Initializing optimizers")
     opt = torch.optim.Adam(model.parameters(), lr=config.lr)
-    if not config.no_contrastive:
+    if config.contrastive:
         opt_contrastive = torch.optim.Adam(model.parameters(), lr=config.clr)
 
     # Metrics
     logg.info("Initializing metrics")
     max_metric = 0
+    # max_epoch = 0
     triplet_margin = 0
     model_max = copy.deepcopy(model)
 
     if config.task == "dti_dg":
         loss_fct = torch.nn.MSELoss()
         val_metrics = {
-            "val/MSE": torchmetrics.MeanSquaredError,
-            "val/PCC": torchmetrics.PearsonCorrCoef,
+            "val/mse": torchmetrics.MeanSquaredError,
+            "val/pcc": torchmetrics.PearsonCorrCoef,
         }
 
         test_metrics = {
-            "test/MSE": torchmetrics.MeanSquaredError,
-            "test/PCC": torchmetrics.PearsonCorrCoef,
+            "test/mse": torchmetrics.MeanSquaredError,
+            "test/pcc": torchmetrics.PearsonCorrCoef,
         }
     else:
         loss_fct = torch.nn.BCELoss()
         val_metrics = {
-            "val/AUPR": torchmetrics.AveragePrecision,
-            "val/AUROC": torchmetrics.AUROC,
-            "val/F1": torchmetrics.F1Score,
+            "val/aupr": torchmetrics.AveragePrecision,
+            "val/auroc": torchmetrics.AUROC,
+            "val/f1": torchmetrics.F1Score,
         }
 
         test_metrics = {
-            "test/AUPR": torchmetrics.AveragePrecision,
-            "test/AUROC": torchmetrics.AUROC,
-            "test/F1": torchmetrics.F1Score,
+            "test/aupr": torchmetrics.AveragePrecision,
+            "test/auroc": torchmetrics.AUROC,
+            "test/f1": torchmetrics.F1Score,
         }
 
     # Initialize wandb
@@ -320,25 +353,22 @@ def main():
     logg.info("Beginning Training")
 
     torch.backends.cudnn.benchmark = True
-    tg_len = len(training_generator)
 
     start_time = time()
     for epo in range(config.epochs):
         model.train()
         epoch_time_start = time()
 
-        for i, batch in enumerate(training_generator):
+        for i, batch in tqdm(
+            enumerate(training_generator), total=len(training_generator)
+        ):
 
             pred, label = step(model, batch, device)
+
             loss = loss_fct(pred, label)
 
             wandb_log(
-                {
-                    "epoch": epo + 1,
-                    "train/loss": loss,
-                    "step": (epo * tg_len * config.batch_size)
-                    + (i * config.batch_size),
-                },
+                {"train/loss": loss},
                 do_wandb,
             )
 
@@ -351,10 +381,20 @@ def main():
                     f"Training at Epoch {epo + 1} iteration {i} with loss {loss.cpu().detach().numpy()}"
                 )
 
-        epoch_time_end = time()
+        if config.contrastive:
+            logg.info(f"Training contrastive at Epoch {epo + 1}")
+            for i, batch in tqdm(
+                enumerate(contrastive_generator),
+                total=len(contrastive_generator),
+            ):
 
-        if not config.no_contrastive:
-            for i, batch in enumerate(contrastive_generator):
+                # logg.debug(len(contrastive_generator))
+                # logg.debug(batch)
+                # logg.debug(batch[0].shape)
+                # logg.debug(batch[1].shape)
+                # logg.debug(batch[2].shape)
+                # return contrastive_datamodule
+                # sys.exit(1)
 
                 contrastive_loss_fct = torch.nn.TripletMarginWithDistanceLoss(
                     distance_function=sigmoid_cosine_distance_p,
@@ -368,7 +408,10 @@ def main():
                 )
 
                 wandb_log(
-                    {"epoch": epo + 1, "train/c_loss": contrastive_loss},
+                    {
+                        "train/c_loss": contrastive_loss,
+                        "train/triplet_margin": triplet_margin,
+                    },
                     do_wandb,
                 )
 
@@ -376,12 +419,25 @@ def main():
                 contrastive_loss.backward()
                 opt_contrastive.step()
 
-            triplet_margin = min(0.5, triplet_margin + (0.5 / config.n_epochs))
+                if i % 1000 == 0:
+                    logg.debug(
+                        "Training at Epoch "
+                        + str(epo + 1)
+                        + " iteration "
+                        + str(i)
+                        + " with loss "
+                        + str(contrastive_loss.cpu().detach().numpy())
+                    )
+
+            triplet_margin = min(0.5, triplet_margin + (0.5 / config.epochs))
             logg.debug(f"Updating contrastive margin to {triplet_margin}")
+
+        epoch_time_end = time()
 
         if epo % config.every_n_val == 0:
             with torch.set_grad_enabled(False):
 
+                logg.debug(len(validation_generator))
                 val_results = test(
                     model,
                     validation_generator,
@@ -389,6 +445,7 @@ def main():
                     device,
                     config.classify,
                 )
+
                 val_results["epoch"] = epo
                 val_results["Charts/epoch_time"] = (
                     epoch_time_end - epoch_time_start
@@ -423,6 +480,7 @@ def main():
             )
             test_end_time = time()
 
+            test_results["epoch"] = epo + 1
             test_results["test/eval_time"] = test_end_time - test_start_time
             test_results["Charts/wall_clock_time"] = end_time - start_time
             wandb_log(test_results, do_wandb)

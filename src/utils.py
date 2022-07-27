@@ -18,8 +18,6 @@ import multiprocessing as mp
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 
-from . import featurizers
-
 logLevels = {0: lg.ERROR, 1: lg.WARNING, 2: lg.INFO, 3: lg.DEBUG}
 LOGGER_NAME = "DTI"
 
@@ -179,6 +177,8 @@ def load_hdf5_parallel(file_path, keys, n_jobs=-1):
 
 
 def get_featurizer(featurizer_string, *args, **kwargs):
+    from . import featurizers
+
     featurizer_string_list = featurizer_string.split(",")
     if len(featurizer_string_list) > 1:
         featurizer_list = [

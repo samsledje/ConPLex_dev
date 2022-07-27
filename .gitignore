@@ -3,12 +3,14 @@ __pycache__/
 
 # Folders
 best_models/
+results/
 models/
 wandb/
 nbdata/
 logs/
 configs/
 dataset/TDC/dti_dg_group/
+dataset/EnzPred
 
 # File Types
 **.pk

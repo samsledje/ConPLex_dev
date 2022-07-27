@@ -175,6 +175,11 @@ def get_dataloaders_dude(
     contrastive_dset = ContrastiveDataset(
         contrastive_dude, mol_feats, prot_feats
     )
+    print(len(contrastive_dset))
+    print(batch_size)
+    print(shuffle)
+    print(num_workers)
+    print(pool)
     contrastive_dataloader = DataLoader(
         contrastive_dset,
         batch_size=batch_size,

@@ -138,6 +138,57 @@ class SimpleCoembedding(nn.Module):
         return sigmoid_f(distance).squeeze()
 
 
+class GoldmanCPI(nn.Module):
+    def __init__(
+        self,
+        drug_shape=2048,
+        target_shape=100,
+        latent_dimension=1024,
+        latent_activation=nn.ReLU,
+        latent_distance="Cosine",
+        classify=True,
+    ):
+        super().__init__()
+        self.drug_shape = drug_shape
+        self.target_shape = target_shape
+        self.latent_dimension = latent_dimension
+        self.do_classify = classify
+
+        self.drug_projector = nn.Sequential(
+            nn.Linear(self.drug_shape, latent_dimension), latent_activation()
+        )
+        nn.init.xavier_normal_(self.drug_projector[0].weight)
+
+        self.target_projector = nn.Sequential(
+            nn.Linear(self.target_shape, latent_dimension), latent_activation()
+        )
+        nn.init.xavier_normal_(self.target_projector[0].weight)
+
+        self.last_linear = nn.Sequential(nn.Linear(latent_dimension, 1))
+
+        if self.do_classify:
+            self.distance_metric = latent_distance
+            self.activator = DISTANCE_METRICS[self.distance_metric]()
+
+    def forward(self, drug, target):
+        if self.do_classify:
+            return self.classify(drug, target)
+        else:
+            return self.regress(drug, target)
+
+    def regress(self, drug, target):
+        drug_projection = self.drug_projector(drug)
+        target_projection = self.target_projector(target)
+        output = torch.einsum("bd,bd->bd", drug_projection, target_projection)
+        distance = self.last_linear(output)
+        return distance
+
+    def classify(self, drug, target):
+        distance = self.regress(drug, target)
+        sigmoid_f = torch.nn.Sigmoid()
+        return sigmoid_f(distance).squeeze()
+
+
 class AffinityCoembedInner(nn.Module):
     def __init__(
         self, mol_emb_size, prot_emb_size, latent_size=1024, activation=nn.ReLU

@@ -55,9 +55,15 @@ class Featurizer:
         self._device = device
         for k, (v, f) in self._cuda_registry.items():
             if f is None:
-                self._cuda_registry[k] = (v.to(self.device), None)
+                try:
+                    self._cuda_registry[k] = (v.to(self._device), None)
+                except RuntimeError as e:
+                    logg.error(e)
+                    logg.debug(device)
+                    logg.debug(type(self._device))
+                    logg.debug(self._device)
             else:
-                self._cuda_registry[k] = (f(v, self.device), f)
+                self._cuda_registry[k] = (f(v, self._device), f)
         for k, v in self._features.items():
             self._features[k] = v.to(device)
 
@@ -66,7 +72,7 @@ class Featurizer:
         with torch.set_grad_enabled(False):
             feats = self._transform(seq)
             if self._on_cuda:
-                feats = feats.cuda()
+                feats = feats.to(self.device)
             return feats
 
     @property
@@ -114,10 +120,12 @@ class Featurizer:
         self._on_cuda = False
         return self
 
-    def write_to_disk(self, seq_list: T.List[str]) -> None:
+    def write_to_disk(
+        self, seq_list: T.List[str], verbose: bool = True
+    ) -> None:
+        logg.info(f"Writing {self.name} features to {self.path}")
         with h5py.File(self._save_path, "a") as h5fi:
-            logg.info(f"Writing {self.name} features to {self.path}")
-            for seq in tqdm(seq_list):
+            for seq in tqdm(seq_list, disable=not verbose, desc=self.name):
                 seq_h5 = sanitize_string(seq)
                 if seq_h5 in h5fi:
                     logg.warning(f"{seq} already in h5file")
@@ -125,19 +133,34 @@ class Featurizer:
                 feats = self.transform(seq)
                 dset[:] = feats.cpu().numpy()
 
-    def preload(self, seq_list: T.List[str]) -> None:
+    def preload(
+        self,
+        seq_list: T.List[str],
+        verbose: bool = True,
+        write_first: bool = True,
+    ) -> None:
         logg.info(f"Preloading {self.name} features from {self.path}")
 
-        if not self._save_path.exists():
-            self.write_to_disk(seq_list)
+        if write_first and not self._save_path.exists():
+            self.write_to_disk(seq_list, verbose=verbose)
 
-        with h5py.File(self._save_path, "r") as h5fi:
-            for seq in tqdm(seq_list):
-                if seq in h5fi:
-                    seq_h5 = sanitize_string(seq)
-                    feats = torch.from_numpy(h5fi[seq_h5][:])
-                else:
-                    feats = self.transform(seq)
+        if self._save_path.exists():
+            with h5py.File(self._save_path, "r") as h5fi:
+                for seq in tqdm(seq_list, disable=not verbose, desc=self.name):
+                    if seq in h5fi:
+                        seq_h5 = sanitize_string(seq)
+                        feats = torch.from_numpy(h5fi[seq_h5][:])
+                    else:
+                        feats = self.transform(seq)
+
+                    if self._on_cuda:
+                        feats = feats.to(self.device)
+
+                    self._features[seq] = feats
+
+        else:
+            for seq in tqdm(seq_list, disable=not verbose, desc=self.name):
+                feats = self.transform(seq)
 
                 if self._on_cuda:
                     feats = feats.to(self.device)
@@ -160,25 +183,36 @@ class ConcatFeaturizer(Featurizer):
     ):
         super().__init__("ConcatFeaturizer", None, save_dir)
 
-        self._featurizer_list = [f(save_dir=save_dir) for f in featurizer_list]
+        self._featurizer_list = featurizer_list
+        self._featurizer_names = []
         for f in self._featurizer_list:
-            self._register_cuda(f.name, f)
+            featurizer = f(save_dir=save_dir)
+            self._featurizer_names.append(featurizer._name)
+            self._register_cuda(featurizer._name, featurizer)
 
-        self._shape = sum([f.shape for f in self._featurizer_list])
+        self._shape = sum(
+            [
+                self._cuda_registry[f_name][0].shape
+                for f_name in self._featurizer_names
+            ]
+        )
 
     def _transform(self, seq: str) -> torch.Tensor:
         feats = []
-        for featurizer in self._featurizer_list:
+        for f_name in self._featurizer_names:
+            featurizer = self._cuda_registry[f_name][0]
             feats.append(featurizer(seq))
         return torch.concat(feats)
 
     def write_to_disk(self, seq_list: T.List[str]) -> None:
-        for featurizer in self._featurizer_list:
+        for f_name in self._featurizer_names:
+            featurizer = self._cuda_registry[f_name][0]
             if not featurizer.path.exists():
                 featurizer.write_to_disk(seq_list)
 
     def preload(self, seq_list: T.List[str]) -> None:
-        for featurizer in self._featurizer_list:
+        for f_name in self._featurizer_names:
+            featurizer = self._cuda_registry[f_name][0]
             featurizer.preload(seq_list)
 
 

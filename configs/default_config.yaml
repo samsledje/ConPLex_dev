@@ -7,10 +7,10 @@ model_architecture: SimpleCoembedding
 latent_dimension: 1024
 latent_distance: "Cosine"
 
-batch_size: 32
+batch_size: 16
+contrastive_batch_size: 16
 shuffle: True
 num_workers: 0
-model_save_dir: "./best_models"
 
 epochs: 50
 every_n_val: 1
@@ -18,5 +18,8 @@ lr: 1e-4
 clr: 1e-5
 
 replicate: 0
-device: 0
+device: 2
 verbosity: 3
+
+wandb_proj: contrastive_TEST
+model_save_dir: ./best_models/enzpred_eval/dti_bm_biosnap_mol

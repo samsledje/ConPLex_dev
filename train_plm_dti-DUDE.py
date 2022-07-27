@@ -24,6 +24,7 @@ import logging
 
 from argparse import ArgumentParser
 from src import plm_dti
+from src.utils import set_random_seed
 import wandb
 
 logg = logging.getLogger(__name__)
@@ -257,8 +258,13 @@ def main():
     torch.cuda.set_device(device)
     print(f"Using CUDA device {device}")
 
-    config.task = args.task
+    # Set random state
     config.replicate = args.replicate
+    print(f"Setting random state {config.replicate}")
+    set_random_seed(config.replicate)
+
+    config.task = args.task
+
     torch.manual_seed(args.replicate)  # reproducible torch:2 np:3
     np.random.seed(args.replicate)
     config.model.model_type = args.model_type
@@ -303,6 +309,7 @@ def main():
         header=None,
     )
     dude_train_list = dude_subtypes[dude_subtypes[1] == "train"][0].values
+    print(dude_train_list)
     contrastive_generator = plm_dti.get_dataloaders_dude(
         dude_train_list,
         config.data.batch_size,
@@ -315,6 +322,9 @@ def main():
         f"saved_embeddings/dude_{args.dude_train}",
         config.data.device,
     )
+
+    print(next(contrastive_generator))
+    sys.exit(1)
 
     config.model.mol_emb_size, config.model.prot_emb_size = (
         mol_emb_size,
@@ -363,7 +373,9 @@ def main():
         model.train()
         epoch_time_start = time()
         if not args.no_bce:
-            for i, (d, p, label) in enumerate(training_generator):
+            for i, (d, p, label) in tqdm(
+                enumerate(training_generator), total=len(training_generator)
+            ):
                 score = model(d.cuda(), p.cuda())
 
                 label = Variable(
@@ -400,10 +412,21 @@ def main():
                     )
 
         if not args.no_contrast:
-            for i, (anch_e, pos_e, neg_e) in enumerate(contrastive_generator):
+            for i, (anch_e, pos_e, neg_e) in tqdm(
+                enumerate(contrastive_generator),
+                total=len(contrastive_generator),
+            ):
                 anchor_proj = model.prot_projector(anch_e.cuda())
                 pos_proj = model.mol_projector(pos_e.cuda())
                 neg_proj = model.mol_projector(neg_e.cuda())
+
+                # print(len(contrastive_generator))
+                # print(anch_e, pos_e, neg_e)
+                # print(anch_e.shape)
+                # print(pos_e.shape)
+                # print(neg_e.shape)
+                # return training_generator, contrastive_generator,
+                # sys.exit(1)
 
                 contrastive_loss = torch.nn.TripletMarginWithDistanceLoss(
                     distance_function=sigmoid_cosine_distance_p,
@@ -438,11 +461,12 @@ def main():
             progressive_margin = min(
                 0.5, progressive_margin + (0.5 / config.training.n_epochs)
             )
+            print(f"Adjusting triplet distance margin to {progressive_margin}")
 
         epoch_time_end = time()
-        print(f"Adjusting triplet distance margin to {progressive_margin}")
 
         if epo % config.training.every_n_val == 0:
+            print(len(validation_generator))
             with torch.set_grad_enabled(False):
                 (
                     val_auc,
@@ -534,6 +558,10 @@ def main():
             print(f"Best model is from epoch {best_epoch}")
             torch.save(
                 model_max, f"best_models/{config.experiment_id}_best_model.sav"
+            )
+            torch.save(
+                model_max.state_dict(),
+                f"best_models/{config.experiment_id}_best_model.pt",
             )
     except Exception as e:
         logg.error(f"testing failed with exception {e}")

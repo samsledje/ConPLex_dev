@@ -12,6 +12,7 @@ from .protein import (
     ProtBertFeaturizer,
     ProtT5XLUniref50Featurizer,
     BindPredict21Featurizer,
+    DSCRIPTFeaturizer,
 )
 
 from .molecule import (

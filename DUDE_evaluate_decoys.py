@@ -21,9 +21,9 @@ from sklearn.manifold import TSNE
 from torch.nn import CosineSimilarity
 from scipy.spatial.distance import cosine
 
-import logging
+from src.utils import get_logger
 
-logg = logging.getLogger(__name__)
+logg = get_logger()
 
 # Parse Arguments
 parser = ArgumentParser()
@@ -69,13 +69,25 @@ structure = parser.get_structure(
 seq = list(AtomIterator(target, structure))[0]
 
 # Load Model
-from src.architectures import SimplePLMModel, SimpleCosine
-from src.mol_feats import Morgan_f
-from src.prot_feats import ProtBert_f
+from src.architectures import SimpleCoembedding
+from src.featurizers import MorganFeaturizer, ProtBertFeaturizer
 
-mol_f = Morgan_f()
-prot_f = ProtBert_f()
-model = torch.load(model_path).cuda()
+drug_featurizer = MorganFeaturizer()
+target_featurizer = ProtBertFeaturizer()
+
+state_dict = torch.load(model_path)
+
+
+model = SimpleCoembedding(
+    drug_featurizer.shape,
+    target_featurizer.shape,
+    latent_dimension=1024,
+    latent_distance="Cosine",
+    classify=True,
+)
+
+model.load_state_dict(state_dict)
+model = model.cuda().eval()
 
 # Project target and molecules
 active_projections = []
@@ -83,17 +95,21 @@ decoy_projections = []
 
 with torch.set_grad_enabled(False):
     for m in tqdm(actives):
-        m_emb = mol_f(Chem.MolToSmiles(m)).cuda()
-        m_proj = model.mol_projector(m_emb).detach().cpu().numpy()
+        m_emb = drug_featurizer(Chem.MolToSmiles(m)).cuda()
+        m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
         active_projections.append(m_proj)
     for m in tqdm(decoys):
         try:
-            m_emb = mol_f(Chem.MolToSmiles(m)).cuda()
-            m_proj = model.mol_projector(m_emb).detach().cpu().numpy()
+            m_emb = drug_featurizer(Chem.MolToSmiles(m)).cuda()
+            m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
             decoy_projections.append(m_proj)
         except Exception as e:
             logg.error(e)
-    seq_proj = model.prot_projector(prot_f(str(seq)).cuda()).cpu().numpy()
+    seq_proj = (
+        model.target_projector(target_featurizer(str(seq)).cuda())
+        .cpu()
+        .numpy()
+    )
 
 # Evaluate Distributions
 cosine_sim = CosineSimilarity(dim=0)

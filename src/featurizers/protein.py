@@ -5,6 +5,9 @@ from pathlib import Path
 from .base import Featurizer
 from ..utils import get_logger
 
+from dscript.language_model import lm_embed
+from dscript.pretrained import get_pretrained
+
 logg = get_logger()
 
 MODEL_CACHE_DIR = Path(
@@ -16,8 +19,6 @@ os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
 class BeplerBergerFeaturizer(Featurizer):
     def __init__(self, save_dir: Path = Path().absolute()):
         super().__init__("BeplerBerger", 6165, save_dir)
-
-        from dscript.language_model import lm_embed
 
         self._max_len = 800
         self._embed = lm_embed
@@ -55,7 +56,7 @@ class ESMFeaturizer(Featurizer):
             [("sequence", seq)]
         )
         batch_tokens = batch_tokens.to(self.device)
-        results = self._esm_model(
+        results = self._cuda_registry["model"][0](
             batch_tokens, repr_layers=[33], return_contacts=True
         )
         token_representations = results["representations"][33]
@@ -93,7 +94,7 @@ class ProseFeaturizer(Featurizer):
         x = x.to(self.device)
         x = x.long().unsqueeze(0)
 
-        z = self._prose_model.transform(x)
+        z = self._cuda_registry["model"][0].transform(x)
         z = z.squeeze(0)
 
         return z.mean(axis=0)
@@ -152,7 +153,7 @@ class ProtBertFeaturizer(Featurizer):
             seq = seq[: self._max_len - 2]
 
         embedding = torch.tensor(
-            self._protbert_feat(self._space_sequence(seq))
+            self._cuda_registry["featurizer"][0](self._space_sequence(seq))
         )
         seq_len = len(seq)
         start_Idx = 1
@@ -211,7 +212,7 @@ class ProtT5XLUniref50Featurizer(Featurizer):
         attention_mask = attention_mask.to(self.device)
 
         with torch.no_grad():
-            embedding = self._protbert_model(
+            embedding = self._cuda_registry["model"][0](
                 input_ids=input_ids, attention_mask=attention_mask
             )
             embedding = embedding.last_hidden_state
@@ -268,22 +269,52 @@ class BindPredict21Featurizer(Featurizer):
 
         self._max_len = 1024
 
-        self._p5tf = ProtT5XLUniref50Featurizer(save_dir=save_dir)
-        self._md = CNN2Layers(1024, 128, 5, 1, 2, 0)
-        self._md.load_state_dict(
+        _p5tf = ProtT5XLUniref50Featurizer(save_dir=save_dir)
+        _md = CNN2Layers(1024, 128, 5, 1, 2, 0)
+        _md.load_state_dict(
             torch.load(self._model_path, map_location="cpu")["state_dict"]
         )
-        self._md = self._md.eval()
-        self._cnn_first = self._md.conv1[:2]
+        _md = _md.eval()
+        _cnn_first = _md.conv1[:2]
 
-        self._register_cuda("pt5_featurizer", self._p5tf)
-        self._register_cuda("model", self._md)
-        self._register_cuda("cnn", self._cnn_first)
+        self._register_cuda("pt5_featurizer", _p5tf)
+        self._register_cuda("model", _md)
+        self._register_cuda("cnn", _cnn_first)
 
     def _transform(self, seq):
         if len(seq) > self._max_len:
             seq = seq[: self._max_len]
 
-        protbert_e = self._p5tf(seq)
-        bindpredict_e = self._cnn_first(protbert_e.view(1, 1024, -1))
+        protbert_e = self._cuda_registry["pt5_featurizer"][0](seq)
+        bindpredict_e = self._cuda_registry["cnn"][0](
+            protbert_e.view(1, 1024, -1)
+        )
         return bindpredict_e.mean(axis=2).squeeze()
+
+
+class DSCRIPTFeaturizer(Featurizer):
+    def __init__(self, save_dir: Path = Path().absolute()):
+        super().__init__("DSCRIPT", 100, save_dir)
+
+        self._max_len = 800
+
+        self._dscript_model = get_pretrained("human_v1")
+        self._register_cuda(
+            "model", self._dscript_model, DSCRIPTFeaturizer._dscript_to_device
+        )
+
+    @staticmethod
+    def _dscript_to_device(model, device: torch.device):
+        model = model.to(device)
+        model.use_cuda = device.type == "cuda"
+        return model
+
+    def _transform(self, seq):
+        if len(seq) > self._max_len:
+            seq = seq[: self._max_len]
+
+        with torch.set_grad_enabled(False):
+            lm_emb = lm_embed(seq, use_cuda=(self.device.type == "cuda"))
+            lm_emb = lm_emb.to(self.device)
+            ds_emb = self._cuda_registry["model"][0].embedding(lm_emb)
+            return ds_emb.mean(axis=1).squeeze()
