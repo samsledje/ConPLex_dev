@@ -187,3 +187,56 @@ def get_featurizer(featurizer_string, *args, **kwargs):
         return featurizers.ConcatFeaturizer(featurizer_list, *args, **kwargs)
     else:
         return getattr(featurizers, featurizer_string_list[0])(*args, **kwargs)
+
+
+class MarginScheduledLossFunction:
+    def __init__(
+        self,
+        M_0: float = 0,
+        M_max: float = 0.5,
+        N_epoch: float = 50,
+        update_fn=None,
+    ):
+        self.M_0 = M_0
+        self.M_max = M_max
+        self.N_epoch = N_epoch
+
+        self._step = 0
+        self.M_curr = self.M_0
+
+        if update_fn is None:
+
+            # def update_margin(x):
+            #     return min(self.M_max, x + (self.M_max / self.N_epoch))
+
+            def update_margin_tanh(x):
+                return self.M_max * np.tanh(2 * x / self.N_epoch)
+
+            self._update_margin_fn = update_margin_tanh
+        else:
+            self._update_margin_fn = update_fn
+
+        self._update_loss_fn()
+
+    @property
+    def margin(self):
+        return self.M_curr
+
+    def _update_loss_fn(self):
+        self._loss_fn = torch.nn.TripletMarginWithDistanceLoss(
+            distance_function=sigmoid_cosine_distance_p,
+            margin=self.M_curr,
+        )
+
+    def step(self):
+        self._step += 1
+        self.M_curr = self._update_margin_fn(self._step)
+        self._update_loss_fn()
+
+    def reset(self):
+        self._step = 0
+        self.M_curr = self._update_margin_fn(self._step)
+        self._update_loss_fn()
+
+    def __call__(self, anchor, positive, negative):
+        return self._loss_fn(anchor, positive, negative)

@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-import dscript
 import os
 import pickle as pk
 from types import SimpleNamespace
@@ -10,7 +9,6 @@ from omegaconf import OmegaConf
 from functools import lru_cache
 from .utils import get_logger
 
-# from dpatch import PB_Embed
 from torch.nn.utils.rnn import pad_sequence
 
 logg = get_logger()
@@ -50,37 +48,6 @@ DISTANCE_METRICS = {
 #######################
 # Model Architectures #
 #######################
-
-
-class SimpleCosine(nn.Module):
-    def __init__(
-        self,
-        mol_emb_size=2048,
-        prot_emb_size=100,
-        latent_size=1024,
-        latent_activation=nn.ReLU,
-        distance_metric="Cosine",
-    ):
-        super().__init__()
-        self.mol_emb_size = mol_emb_size
-        self.prot_emb_size = prot_emb_size
-
-        self.mol_projector = nn.Sequential(
-            nn.Linear(self.mol_emb_size, latent_size), latent_activation()
-        )
-
-        self.prot_projector = nn.Sequential(
-            nn.Linear(self.prot_emb_size, latent_size), latent_activation()
-        )
-
-        self.dist_metric = distance_metric
-        self.activator = DISTANCE_METRICS[self.dist_metric]()
-
-    def forward(self, mol_emb, prot_emb):
-        mol_proj = self.mol_projector(mol_emb)
-        prot_proj = self.prot_projector(prot_emb)
-
-        return self.activator(mol_proj, prot_proj)
 
 
 class SimpleCoembedding(nn.Module):
@@ -189,6 +156,37 @@ class GoldmanCPI(nn.Module):
         return sigmoid_f(distance).squeeze()
 
 
+class SimpleCosine(nn.Module):
+    def __init__(
+        self,
+        mol_emb_size=2048,
+        prot_emb_size=100,
+        latent_size=1024,
+        latent_activation=nn.ReLU,
+        distance_metric="Cosine",
+    ):
+        super().__init__()
+        self.mol_emb_size = mol_emb_size
+        self.prot_emb_size = prot_emb_size
+
+        self.mol_projector = nn.Sequential(
+            nn.Linear(self.mol_emb_size, latent_size), latent_activation()
+        )
+
+        self.prot_projector = nn.Sequential(
+            nn.Linear(self.prot_emb_size, latent_size), latent_activation()
+        )
+
+        self.dist_metric = distance_metric
+        self.activator = DISTANCE_METRICS[self.dist_metric]()
+
+    def forward(self, mol_emb, prot_emb):
+        mol_proj = self.mol_projector(mol_emb)
+        prot_proj = self.prot_projector(prot_emb)
+
+        return self.activator(mol_proj, prot_proj)
+
+
 class AffinityCoembedInner(nn.Module):
     def __init__(
         self, mol_emb_size, prot_emb_size, latent_size=1024, activation=nn.ReLU
@@ -219,10 +217,7 @@ class AffinityCoembedInner(nn.Module):
             mol_proj.view(-1, 1, self.latent_size),
             prot_proj.view(-1, self.latent_size, 1),
         ).squeeze()
-        print("HERE")
-        print(y)
         return y
-        # return torch.inner(mol_proj, prot_proj).squeeze()
 
 
 class CosineBatchNorm(nn.Module):

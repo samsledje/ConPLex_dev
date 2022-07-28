@@ -34,6 +34,7 @@ from src.utils import (
     get_logger,
     get_featurizer,
     sigmoid_cosine_distance_p,
+    MarginScheduledLossFunction,
 )
 
 logg = get_logger()
@@ -273,12 +274,10 @@ def main():
             shuffle=config.shuffle,
             num_workers=config.num_workers,
         )
+
         contrastive_datamodule.prepare_data()
         contrastive_datamodule.setup(stage="fit")
         contrastive_generator = contrastive_datamodule.train_dataloader()
-
-        logg.debug(next(contrastive_generator))
-        sys.exit(1)
 
     config.drug_shape = drug_featurizer.shape
     config.target_shape = target_featurizer.shape
@@ -301,15 +300,25 @@ def main():
 
     # Optimizers
     logg.info("Initializing optimizers")
-    opt = torch.optim.Adam(model.parameters(), lr=config.lr)
+    opt = torch.optim.AdamW(model.parameters(), lr=config.lr)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        opt, T_0=config.lr_t0
+    )
+
     if config.contrastive:
-        opt_contrastive = torch.optim.Adam(model.parameters(), lr=config.clr)
+        contrastive_loss_fct = MarginScheduledLossFunction(
+            0, 0.25, config.epochs
+        )
+        opt_contrastive = torch.optim.AdamW(model.parameters(), lr=config.clr)
+        lr_scheduler_contrastive = (
+            torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                opt_contrastive, T_0=config.clr_t0
+            )
+        )
 
     # Metrics
     logg.info("Initializing metrics")
     max_metric = 0
-    # max_epoch = 0
-    triplet_margin = 0
     model_max = copy.deepcopy(model)
 
     if config.task == "dti_dg":
@@ -328,19 +337,17 @@ def main():
         val_metrics = {
             "val/aupr": torchmetrics.AveragePrecision,
             "val/auroc": torchmetrics.AUROC,
-            "val/f1": torchmetrics.F1Score,
         }
 
         test_metrics = {
             "test/aupr": torchmetrics.AveragePrecision,
             "test/auroc": torchmetrics.AUROC,
-            "test/f1": torchmetrics.F1Score,
         }
 
     # Initialize wandb
     do_wandb = "wandb_proj" in config
     if do_wandb:
-        logg.debug(f"Initializing wandb project {config.wandb_proj}")
+        logg.info(f"Initializing wandb project {config.wandb_proj}")
         wandb.init(
             project=config.wandb_proj,
             name=config.experiment_id,
@@ -354,21 +361,28 @@ def main():
 
     torch.backends.cudnn.benchmark = True
 
+    # Begin Training
     start_time = time()
     for epo in range(config.epochs):
         model.train()
         epoch_time_start = time()
 
+        # Main Step
         for i, batch in tqdm(
             enumerate(training_generator), total=len(training_generator)
         ):
-
             pred, label = step(model, batch, device)
 
             loss = loss_fct(pred, label)
 
             wandb_log(
-                {"train/loss": loss},
+                {
+                    "train/step": (
+                        epo * len(training_generator) * config.batch_size
+                    )
+                    + (i * config.batch_size),
+                    "train/loss": loss,
+                },
                 do_wandb,
             )
 
@@ -376,11 +390,21 @@ def main():
             loss.backward()
             opt.step()
 
-            if i % 1000 == 0:
-                logg.info(
-                    f"Training at Epoch {epo + 1} iteration {i} with loss {loss.cpu().detach().numpy()}"
-                )
+        lr_scheduler.step()
 
+        wandb_log(
+            {
+                "epoch": epo,
+                "train/lr": lr_scheduler.get_lr()[0],
+            },
+            do_wandb,
+        )
+        logg.info(
+            f"Training at Epoch {epo + 1} with loss {loss.cpu().detach().numpy():8f}"
+        )
+        logg.info(f"Updating learning rate to {lr_scheduler.get_lr()[0]:8f}")
+
+        # Contrastive Step
         if config.contrastive:
             logg.info(f"Training contrastive at Epoch {epo + 1}")
             for i, batch in tqdm(
@@ -388,29 +412,23 @@ def main():
                 total=len(contrastive_generator),
             ):
 
-                # logg.debug(len(contrastive_generator))
-                # logg.debug(batch)
-                # logg.debug(batch[0].shape)
-                # logg.debug(batch[1].shape)
-                # logg.debug(batch[2].shape)
-                # return contrastive_datamodule
-                # sys.exit(1)
-
-                contrastive_loss_fct = torch.nn.TripletMarginWithDistanceLoss(
-                    distance_function=sigmoid_cosine_distance_p,
-                    margin=triplet_margin,
-                )
                 anchor, positive, negative = contrastive_step(
                     model, batch, device
                 )
+
                 contrastive_loss = contrastive_loss_fct(
                     anchor, positive, negative
                 )
 
                 wandb_log(
                     {
+                        "train/c_step": (
+                            epo
+                            * len(training_generator)
+                            * config.contrastive_batch_size
+                        )
+                        + (i * config.contrastive_batch_size),
                         "train/c_loss": contrastive_loss,
-                        "train/triplet_margin": triplet_margin,
                     },
                     do_wandb,
                 )
@@ -419,25 +437,34 @@ def main():
                 contrastive_loss.backward()
                 opt_contrastive.step()
 
-                if i % 1000 == 0:
-                    logg.debug(
-                        "Training at Epoch "
-                        + str(epo + 1)
-                        + " iteration "
-                        + str(i)
-                        + " with loss "
-                        + str(contrastive_loss.cpu().detach().numpy())
-                    )
+            contrastive_loss_fct.step()
+            lr_scheduler_contrastive.step()
 
-            triplet_margin = min(0.5, triplet_margin + (0.5 / config.epochs))
-            logg.debug(f"Updating contrastive margin to {triplet_margin}")
+            wandb_log(
+                {
+                    "epoch": epo,
+                    "train/triplet_margin": contrastive_loss_fct.margin,
+                    "train/contrastive_lr": lr_scheduler_contrastive.get_lr(),
+                },
+                do_wandb,
+            )
+
+            logg.info(
+                f"Training at Contrastive Epoch {epo + 1} with loss {contrastive_loss.cpu().detach().numpy():8f}"
+            )
+            logg.info(
+                f"Updating contrastive learning rate to {lr_scheduler_contrastive.get_lr()[0]:8f}"
+            )
+            logg.info(
+                f"Updating contrastive margin to {contrastive_loss_fct.margin}"
+            )
 
         epoch_time_end = time()
 
+        # Validation
         if epo % config.every_n_val == 0:
             with torch.set_grad_enabled(False):
 
-                logg.debug(len(validation_generator))
                 val_results = test(
                     model,
                     validation_generator,
@@ -454,14 +481,26 @@ def main():
                 wandb_log(val_results, do_wandb)
 
                 if val_results[config.watch_metric] > max_metric:
+                    logg.debug(
+                        f"Validation AUPR {val_results[config.watch_metric]:8f} > previous max {max_metric:8f}"
+                    )
                     model_max = copy.deepcopy(model)
                     max_metric = val_results[config.watch_metric]
-                    model_save_path = f"{save_dir}/{config.experiment_id}_best_model_epoch{epo:02}.pt"
+                    model_save_path = Path(
+                        f"{save_dir}/{config.experiment_id}_best_model_epoch{epo:02}.pt"
+                    )
                     torch.save(
                         model_max.state_dict(),
                         model_save_path,
                     )
                     logg.info(f"Saving checkpoint model to {model_save_path}")
+
+                    if do_wandb:
+                        art = wandb.Artifact(
+                            f"dti-{config.experiment_id}", type="model"
+                        )
+                        art.add_file(model_save_path, model_save_path.name)
+                        wandb.log_artifact(art, aliases=["best"])
 
                 logg.info(f"Validation at Epoch {epo + 1}")
                 for k, v in val_results.items():
@@ -469,6 +508,8 @@ def main():
                         logg.info(f"{k}: {v}")
 
     end_time = time()
+
+    # Testing
     logg.info("Beginning testing")
     try:
         with torch.set_grad_enabled(False):
@@ -476,7 +517,11 @@ def main():
 
             test_start_time = time()
             test_results = test(
-                model, testing_generator, test_metrics, device, config.classify
+                model_max,
+                testing_generator,
+                test_metrics,
+                device,
+                config.classify,
             )
             test_end_time = time()
 
@@ -490,7 +535,7 @@ def main():
                 if not k.startswith("_"):
                     logg.info(f"{k}: {v}")
 
-            model_save_path = (
+            model_save_path = Path(
                 f"{save_dir}/{config.experiment_id}_best_model.pt"
             )
             torch.save(
@@ -498,6 +543,13 @@ def main():
                 model_save_path,
             )
             logg.info(f"Saving final model to {model_save_path}")
+
+            if do_wandb:
+                art = wandb.Artifact(
+                    f"dti-{config.experiment_id}", type="model"
+                )
+                art.add_file(model_save_path, model_save_path.name)
+                wandb.log_artifact(art, aliases=["best"])
 
     except Exception as e:
         logg.error(f"Testing failed with exception {e}")

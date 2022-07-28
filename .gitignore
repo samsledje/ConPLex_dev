@@ -9,6 +9,7 @@ wandb/
 nbdata/
 logs/
 configs/
+artifacts/
 dataset/TDC/dti_dg_group/
 dataset/EnzPred
 
