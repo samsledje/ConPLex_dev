@@ -77,8 +77,8 @@ def drug_target_collate_fn(
 
 def make_contrastive(
     df: pd.DataFrame,
-    drug_column: str,
-    target_column: str,
+    posneg_column: str,
+    anchor_column: str,
     label_column: str,
     n_neg_per: int = 50,
 ):
@@ -90,7 +90,11 @@ def make_contrastive(
     for _, r in pos_df.iterrows():
         for _ in range(n_neg_per):
             contrastive.append(
-                (r[target_column], r[drug_column], choice(neg_df[drug_column]))
+                (
+                    r[anchor_column],
+                    r[posneg_column],
+                    choice(neg_df[posneg_column]),
+                )
             )
 
     contrastive = pd.DataFrame(
@@ -132,24 +136,24 @@ class ContrastiveDataset(Dataset):
         anchors,
         positives,
         negatives,
-        drug_featurizer: Featurizer,
-        target_featurizer: Featurizer,
+        posneg_featurizer: Featurizer,
+        anchor_featurizer: Featurizer,
     ):
         self.anchors = anchors
         self.positives = positives
         self.negatives = negatives
 
-        self.drug_featurizer = drug_featurizer
-        self.target_featurizer = target_featurizer
+        self.posneg_featurizer = posneg_featurizer
+        self.anchor_featurizer = anchor_featurizer
 
     def __len__(self):
         return len(self.anchors)
 
     def __getitem__(self, i):
 
-        anchorEmb = self.target_featurizer(self.anchors[i])
-        positiveEmb = self.drug_featurizer(self.positives[i])
-        negativeEmb = self.drug_featurizer(self.negatives[i])
+        anchorEmb = self.anchor_featurizer(self.anchors[i])
+        positiveEmb = self.posneg_featurizer(self.positives[i])
+        negativeEmb = self.posneg_featurizer(self.negatives[i])
 
         return anchorEmb, positiveEmb, negativeEmb
 

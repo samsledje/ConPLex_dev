@@ -209,8 +209,11 @@ class MarginScheduledLossFunction:
             # def update_margin(x):
             #     return min(self.M_max, x + (self.M_max / self.N_epoch))
 
+            # def update_margin_tanh(x):
+            #     return self.M_max * np.tanh(2 * x / self.N_epoch)
+
             def update_margin_tanh(x):
-                return self.M_max * np.tanh(2 * x / self.N_epoch)
+                return self.M_max * (1 - np.tanh(2 * x / self.N_epoch))
 
             self._update_margin_fn = update_margin_tanh
         else:
@@ -239,4 +242,7 @@ class MarginScheduledLossFunction:
         self._update_loss_fn()
 
     def __call__(self, anchor, positive, negative):
+        # logg.debug(anchor, anchor.shape)
+        # logg.debug(positive, positive.shape)
+        # logg.debug(negative, negative.shape)
         return self._loss_fn(anchor, positive, negative)

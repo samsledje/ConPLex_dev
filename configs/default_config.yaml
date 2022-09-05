@@ -1,4 +1,4 @@
-task: davis
+task: dti_dg
 contrastive_split: within
 
 drug_featurizer: MorganFeaturizer
@@ -7,7 +7,7 @@ model_architecture: SimpleCoembedding
 latent_dimension: 1024
 latent_distance: "Cosine"
 
-batch_size: 16
+batch_size: 32
 contrastive_batch_size: 256
 shuffle: True
 num_workers: 0
@@ -16,13 +16,14 @@ epochs: 50
 every_n_val: 1
 lr: 1e-4
 lr_t0: 10
+contrastive: True
 clr: 1e-5
 clr_t0: 10
 
-replicate: 0
+replicate: 1
 device: 5
 verbosity: 3
 
-wandb_proj: contrastive_TEST
-log_file: ./logs/davis_contrastive_largeBatch.log
+wandb_proj: dti_dg
+log_file: ./logs/relu_tdc-dg.log
 model_save_dir: ./best_models

@@ -51,6 +51,8 @@ database_path = args.database
 model_path = args.model
 model_name = model_path.split("/")[-1].split(".")[0]
 
+device = torch.device("cuda:0")
+
 # Load Molecules
 try:
     actives = Chem.SDMolSupplier(f"{database_path}/{target}/actives_final.sdf")
@@ -67,13 +69,15 @@ structure = parser.get_structure(
     target, f"{database_path}/{target}/receptor.pdb"
 )
 seq = list(AtomIterator(target, structure))[0]
+print(seq)
 
 # Load Model
-from src.architectures import SimpleCoembedding
-from src.featurizers import MorganFeaturizer, ProtBertFeaturizer
+from src.architectures import SimpleCoembedding, GoldmanCPI
+from src.featurizers import MorganFeaturizer, ProtBertFeaturizer, ESMFeaturizer
 
-drug_featurizer = MorganFeaturizer()
-target_featurizer = ProtBertFeaturizer()
+drug_featurizer = MorganFeaturizer().to(device)
+target_featurizer = ProtBertFeaturizer().to(device)
+# target_featurizer = ESMFeaturizer().to(device)
 
 state_dict = torch.load(model_path)
 
@@ -84,7 +88,16 @@ model = SimpleCoembedding(
     latent_dimension=1024,
     latent_distance="Cosine",
     classify=True,
-)
+).to(device)
+
+
+# bash scripts/CMD_BENCHMARK_DUDE_WITHINTYPE.sh best_models/goldman_bindingdb_best_model.pt results/goldmanBDB_DUDEwithin
+# model = GoldmanCPI(
+#         drug_featurizer.shape,
+#         target_featurizer.shape,
+#         latent_dimension=100,
+#         classify=True,
+#     ).to(device)
 
 model.load_state_dict(state_dict)
 model = model.cuda().eval()
@@ -105,11 +118,16 @@ with torch.set_grad_enabled(False):
             decoy_projections.append(m_proj)
         except Exception as e:
             logg.error(e)
-    seq_proj = (
-        model.target_projector(target_featurizer(str(seq)).cuda())
-        .cpu()
-        .numpy()
-    )
+    try:
+        seq_proj = (
+            model.target_projector(target_featurizer(str(seq.seq)).cuda())
+            .cpu()
+            .numpy()
+        )
+    except KeyError as e:
+        logg.error(e)
+        logg.debug(str(seq))
+        sys.exit(1)
 
 # Evaluate Distributions
 cosine_sim = CosineSimilarity(dim=0)

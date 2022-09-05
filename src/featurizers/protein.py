@@ -49,6 +49,7 @@ class ESMFeaturizer(Featurizer):
         self._register_cuda("model", self._esm_model)
 
     def _transform(self, seq: str):
+        seq = seq.upper()
         if len(seq) > self._max_len - 2:
             seq = seq[: self._max_len - 2]
 

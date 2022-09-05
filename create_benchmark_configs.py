@@ -1,7 +1,7 @@
 from sklearn.model_selection import ParameterGrid
 from omegaconf import OmegaConf
 
-wandb_project = "DTI_Benchmarking_2022-06-29"
+wandb_project = "DTI_Benchmarking_2022-08-26"
 
 tasks = [
     "davis",
@@ -14,9 +14,6 @@ tasks = [
 
 drug_featurizers = [
     "MorganFeaturizer",
-    # 'Mol2VecFeaturizer',
-    # 'MolRFeaturizer',
-    # 'GEMFeaturizer'
 ]
 
 target_featurizers = [

@@ -54,7 +54,7 @@ class SimpleCoembedding(nn.Module):
     def __init__(
         self,
         drug_shape=2048,
-        target_shape=100,
+        target_shape=1024,
         latent_dimension=1024,
         latent_activation=nn.ReLU,
         latent_distance="Cosine",
@@ -94,7 +94,8 @@ class SimpleCoembedding(nn.Module):
             drug_projection.view(-1, 1, self.latent_dimension),
             target_projection.view(-1, self.latent_dimension, 1),
         ).squeeze()
-        return inner_prod
+        relu_f = torch.nn.ReLU()
+        return relu_f(inner_prod).squeeze()
 
     def classify(self, drug, target):
         drug_projection = self.drug_projector(drug)
@@ -109,10 +110,11 @@ class GoldmanCPI(nn.Module):
     def __init__(
         self,
         drug_shape=2048,
-        target_shape=100,
-        latent_dimension=1024,
+        target_shape=1024,
+        latent_dimension=100,
         latent_activation=nn.ReLU,
         latent_distance="Cosine",
+        model_dropout=0.1,
         classify=True,
     ):
         super().__init__()
@@ -131,7 +133,16 @@ class GoldmanCPI(nn.Module):
         )
         nn.init.xavier_normal_(self.target_projector[0].weight)
 
-        self.last_linear = nn.Sequential(nn.Linear(latent_dimension, 1))
+        self.last_layers = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(latent_dimension, latent_dimension, bias=True),
+            nn.Dropout(p=model_dropout),
+            nn.ReLU(),
+            nn.Linear(latent_dimension, latent_dimension, bias=True),
+            nn.Dropout(p=model_dropout),
+            nn.ReLU(),
+            nn.Linear(latent_dimension, 1, bias=True),
+        )
 
         if self.do_classify:
             self.distance_metric = latent_distance
@@ -147,7 +158,7 @@ class GoldmanCPI(nn.Module):
         drug_projection = self.drug_projector(drug)
         target_projection = self.target_projector(target)
         output = torch.einsum("bd,bd->bd", drug_projection, target_projection)
-        distance = self.last_linear(output)
+        distance = self.last_layers(output)
         return distance
 
     def classify(self, drug, target):
