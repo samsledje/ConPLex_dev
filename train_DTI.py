@@ -307,7 +307,7 @@ def main():
 
     if config.contrastive:
         contrastive_loss_fct = MarginScheduledLossFunction(
-            0, 0.25, config.epochs
+            0.25, 0.25, config.epochs
         )
         opt_contrastive = torch.optim.AdamW(model.parameters(), lr=config.clr)
         lr_scheduler_contrastive = (

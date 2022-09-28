@@ -192,8 +192,8 @@ def get_featurizer(featurizer_string, *args, **kwargs):
 class MarginScheduledLossFunction:
     def __init__(
         self,
-        M_0: float = 0,
-        M_max: float = 0.5,
+        M_0: float = 0.25,
+        M_max: float = 0.25,
         N_epoch: float = 50,
         update_fn=None,
     ):
@@ -202,7 +202,7 @@ class MarginScheduledLossFunction:
         self.N_epoch = N_epoch
 
         self._step = 0
-        self.M_curr = self.M_0
+        self.M_curr = self.M_max
 
         if update_fn is None:
 

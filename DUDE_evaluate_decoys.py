@@ -81,7 +81,6 @@ target_featurizer = ProtBertFeaturizer().to(device)
 
 state_dict = torch.load(model_path)
 
-
 model = SimpleCoembedding(
     drug_featurizer.shape,
     target_featurizer.shape,
@@ -99,6 +98,7 @@ model = SimpleCoembedding(
 #         classify=True,
 #     ).to(device)
 
+# model = torch.load(model_path)
 model.load_state_dict(state_dict)
 model = model.cuda().eval()
 
@@ -164,14 +164,14 @@ df.to_csv(f"{outdir}/DUDe_{target}_{model_name}_scores.csv")
 sns.violinplot(data=df, x="label", y="scores")
 plt.title(f"{target} Predicted Scores (p={pvalue})")
 plt.savefig(
-    f"{outdir}/DUDe_{target}_{model_name}_violinplot.png", bbox_inches="tight"
+    f"{outdir}/DUDe_{target}_{model_name}_violinplot.svg", bbox_inches="tight"
 )
 # plt.show()
 
 sns.displot(data=df, x="scores", hue="label")
 plt.title(f"{target} Predicted Scores (p={pvalue})")
 plt.savefig(
-    f"{outdir}/DUDe_{target}_{model_name}_displot.png", bbox_inches="tight"
+    f"{outdir}/DUDe_{target}_{model_name}_displot.svg", bbox_inches="tight"
 )
 # plt.show()
 
@@ -191,7 +191,7 @@ plt.figure(figsize=(15, 15), dpi=80)
 sns.scatterplot(x=project_tsne[:, 0], y=project_tsne[:, 1], hue=hue, s=size)
 plt.title(f"{target} T-SNE")
 plt.savefig(
-    f"{outdir}/DUDe_{target}_{model_name}_tsne.png", bbox_inches="tight"
+    f"{outdir}/DUDe_{target}_{model_name}_tsne.svg", bbox_inches="tight"
 )
 plt.xlabel("TSNE1")
 plt.ylabel("TSNE2")

@@ -212,12 +212,15 @@ class DTIDataModule(pl.LightningDataModule):
         df_train = pd.read_csv(
             self._data_dir / self._train_path, **self._csv_kwargs
         )
+
         df_val = pd.read_csv(
             self._data_dir / self._val_path, **self._csv_kwargs
         )
+
         df_test = pd.read_csv(
             self._data_dir / self._test_path, **self._csv_kwargs
         )
+
         dataframes = [df_train, df_val, df_test]
         all_drugs = pd.concat(
             [i[self._drug_column] for i in dataframes]
@@ -244,12 +247,15 @@ class DTIDataModule(pl.LightningDataModule):
         self.df_train = pd.read_csv(
             self._data_dir / self._train_path, **self._csv_kwargs
         )
+
         self.df_val = pd.read_csv(
             self._data_dir / self._val_path, **self._csv_kwargs
         )
+
         self.df_test = pd.read_csv(
             self._data_dir / self._test_path, **self._csv_kwargs
         )
+
         self._dataframes = [self.df_train, self.df_val, self.df_test]
 
         all_drugs = pd.concat(

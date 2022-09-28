@@ -1,4 +1,4 @@
-task: dti_dg
+task: bindingdb
 contrastive_split: within
 
 drug_featurizer: MorganFeaturizer
@@ -20,10 +20,10 @@ contrastive: True
 clr: 1e-5
 clr_t0: 10
 
-replicate: 1
+replicate: 0
 device: 5
 verbosity: 3
 
-wandb_proj: dti_dg
-log_file: ./logs/relu_tdc-dg.log
+wandb_proj: FinalRuns
+log_file: ./logs/production_bdb.log
 model_save_dir: ./best_models
