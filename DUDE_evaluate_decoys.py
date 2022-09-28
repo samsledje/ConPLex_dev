@@ -98,8 +98,8 @@ model = SimpleCoembedding(
 #         classify=True,
 #     ).to(device)
 
-# model = torch.load(model_path)
-model.load_state_dict(state_dict)
+model = torch.load(model_path)
+# model.load_state_dict(state_dict)
 model = model.cuda().eval()
 
 # Project target and molecules
@@ -109,18 +109,21 @@ decoy_projections = []
 with torch.set_grad_enabled(False):
     for m in tqdm(actives):
         m_emb = drug_featurizer(Chem.MolToSmiles(m)).cuda()
-        m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
+        # m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
+        m_proj = model.mol_projector(m_emb).detach().cpu().numpy()
         active_projections.append(m_proj)
     for m in tqdm(decoys):
         try:
             m_emb = drug_featurizer(Chem.MolToSmiles(m)).cuda()
-            m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
+            # m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
+            m_proj = model.mol_projector(m_emb).detach().cpu().numpy()
             decoy_projections.append(m_proj)
         except Exception as e:
             logg.error(e)
     try:
         seq_proj = (
-            model.target_projector(target_featurizer(str(seq.seq)).cuda())
+            # model.target_projector(target_featurizer(str(seq.seq)).cuda())
+            model.prot_projector(target_featurizer(str(seq.seq)).cuda())
             .cpu()
             .numpy()
         )
@@ -147,13 +150,13 @@ with torch.set_grad_enabled(False):
 df = pd.DataFrame(
     {
         "scores": active_scores + decoy_scores,
-        "label": (["active"] * len(active_scores))
-        + (["decoy"] * len(decoy_scores)),
+        "label": (["Active"] * len(active_scores))
+        + (["Decoy"] * len(decoy_scores)),
     }
 )
 stat, pvalue = scipy.stats.ttest_ind(
-    df[df["label"] == "active"]["scores"],
-    df[df["label"] == "decoy"]["scores"],
+    df[df["label"] == "Active"]["scores"],
+    df[df["label"] == "Decoy"]["scores"],
     alternative="greater",
 )
 print(f"T stat={stat}, p={pvalue}")
@@ -161,10 +164,17 @@ with open(f"{outdir}/DUDe_{target}_{model_name}_pval.txt", "w+") as f:
     f.write(f"{target}\t{stat}\t{pvalue}\n")
 df.to_csv(f"{outdir}/DUDe_{target}_{model_name}_scores.csv")
 
+sns.set(style="whitegrid", font_scale=3)
+plt.figure(figsize=(15, 15), dpi=100)
 sns.violinplot(data=df, x="label", y="scores")
 plt.title(f"{target} Predicted Scores (p={pvalue})")
+plt.xlabel("Molecule")
+plt.ylabel("Predicted Score")
 plt.savefig(
     f"{outdir}/DUDe_{target}_{model_name}_violinplot.svg", bbox_inches="tight"
+)
+plt.savefig(
+    f"{outdir}/DUDe_{target}_{model_name}_violinplot.png", bbox_inches="tight"
 )
 # plt.show()
 
@@ -179,21 +189,31 @@ plt.savefig(
 all_projections = np.concatenate(
     [active_projections, decoy_projections, [seq_proj]], axis=0
 )
-project_tsne = TSNE(metric="cosine", n_jobs=32).fit_transform(all_projections)
+project_tsne = TSNE(
+    metric="cosine", n_jobs=32, random_state=61998
+).fit_transform(all_projections)
 
 hue = (
     ["Active"] * len(active_projections)
     + ["Decoy"] * len(decoy_projections)
     + ["Target"]
 )
-size = [15] * len(active_projections) + [15] * len(decoy_projections) + [100]
-plt.figure(figsize=(15, 15), dpi=80)
-sns.scatterplot(x=project_tsne[:, 0], y=project_tsne[:, 1], hue=hue, s=size)
-plt.title(f"{target} T-SNE")
+size = [30] * len(active_projections) + [30] * len(decoy_projections) + [1000]
+
+sns.set(style="whitegrid", font_scale=3)
+plt.figure(figsize=(15, 15), dpi=100)
+sns.scatterplot(
+    x=project_tsne[:, 0], y=project_tsne[:, 1], hue=hue, s=size, legend=False
+)
+# plt.title(f"{target} T-SNE")
+plt.xlabel("T-SNE 1")
+plt.ylabel("T-SNE 2")
+# plt.legend()
+sns.despine()
 plt.savefig(
     f"{outdir}/DUDe_{target}_{model_name}_tsne.svg", bbox_inches="tight"
 )
-plt.xlabel("TSNE1")
-plt.ylabel("TSNE2")
-sns.despine()
+plt.savefig(
+    f"{outdir}/DUDe_{target}_{model_name}_tsne.png", bbox_inches="tight"
+)
 # plt.show()
