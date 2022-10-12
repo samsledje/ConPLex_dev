@@ -4,7 +4,7 @@ This repository is a work in progress. Please submit an issue or email samsl@mit
 
 ### Sample Usage
 
-`python train_plm_dti.py --replicate 1 --wandb-proj Default_Project --task davis --model-type SimpleCosine --mol-feat Morgan_f --prot-feat BeplerBerger_DSCRIPT_cat_f --exp-id Davis_SimpleCosine_Morgan_BeplerBerger_DSCRIPT_cat_rep1`
+`python train_DTI.py --exp-id ExperimentName --config configs/default_config.yaml`
 
 ### Repository Organization
 
@@ -21,10 +21,7 @@ This repository is a work in progress. Please submit an issue or email samsl@mit
   - `BIOSNAP`
   - `DUDe` 
 - `nb`: Jupyter notebooks for data generation and exploration
-- `train_plm_dti.py` -- Main training script to run DTI classification benchmarks, with options for task, featurizer, architecture, logging, etc.
-- `train_plm_dti-TDC-DG.py` -- Run TDC DTI-DG benchmarking with options for featurizer, model architecture, logging, etc.
-- `train_plm_dti-DUDE.py` -- Main training script, modified to additionally train with a triplet distance loss on the DUDe decoy training set
-- `train_plm_dti-{contrastive, CELoss}` -- Main training script, modified to additionally train with a {CosineEmbeddingLoss, TripletDistanceLoss} on the benchmark task data set
+- `train_DTI.py` -- Main training script to run DTI classification benchmarks
 - `DUDE_evaluate_decoys.py` -- Compare predictions of a trained model between a target and known true binders/decoys. Visualize embedding space
 - `DUDE_summarize_decoys.py` -- Given a directory of protein targets, summarize active/decoy discriminative performance by target type
 
