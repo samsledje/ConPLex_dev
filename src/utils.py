@@ -206,12 +206,6 @@ class MarginScheduledLossFunction:
 
         if update_fn is None:
 
-            # def update_margin(x):
-            #     return min(self.M_max, x + (self.M_max / self.N_epoch))
-
-            # def update_margin_tanh(x):
-            #     return self.M_max * np.tanh(2 * x / self.N_epoch)
-
             def update_margin_tanh(x):
                 return self.M_max * (1 - np.tanh(2 * x / self.N_epoch))
 

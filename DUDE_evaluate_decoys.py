@@ -51,8 +51,6 @@ database_path = args.database
 model_path = args.model
 model_name = model_path.split("/")[-1].split(".")[0]
 
-device = torch.device("cuda:0")
-
 # Load Molecules
 try:
     actives = Chem.SDMolSupplier(f"{database_path}/{target}/actives_final.sdf")
@@ -75,9 +73,8 @@ print(seq)
 from src.architectures import SimpleCoembedding, GoldmanCPI
 from src.featurizers import MorganFeaturizer, ProtBertFeaturizer, ESMFeaturizer
 
-drug_featurizer = MorganFeaturizer().to(device)
-target_featurizer = ProtBertFeaturizer().to(device)
-# target_featurizer = ESMFeaturizer().to(device)
+drug_featurizer = MorganFeaturizer()
+target_featurizer = ProtBertFeaturizer()
 
 state_dict = torch.load(model_path)
 
@@ -87,50 +84,66 @@ model = SimpleCoembedding(
     latent_dimension=1024,
     latent_distance="Cosine",
     classify=True,
-).to(device)
+)
 
-
-# bash scripts/CMD_BENCHMARK_DUDE_WITHINTYPE.sh best_models/goldman_bindingdb_best_model.pt results/goldmanBDB_DUDEwithin
-# model = GoldmanCPI(
-#         drug_featurizer.shape,
-#         target_featurizer.shape,
-#         latent_dimension=100,
-#         classify=True,
-#     ).to(device)
-
-model = torch.load(model_path)
-# model.load_state_dict(state_dict)
+model.load_state_dict(state_dict)
 model = model.cuda().eval()
 
 # Project target and molecules
 active_projections = []
 decoy_projections = []
 
+# with torch.set_grad_enabled(False):
+
+#     print('Seq.Seq (-267)')
+#     print(str(seq.seq))
+#     print(target_featurizer(str(seq.seq)))
+#     print('Seq')
+#     print(str(seq))
+#     print(target_featurizer(str(seq)))
+#     sys.exit(1)
+
+
+#     for m in tqdm(actives):
+#         m_emb = drug_featurizer(Chem.MolToSmiles(m)).cuda()
+#         m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
+#         active_projections.append(m_proj)
+#     for m in tqdm(decoys):
+#         try:
+#             m_emb = drug_featurizer(Chem.MolToSmiles(m)).cuda()
+#             m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
+#             decoy_projections.append(m_proj)
+#         except Exception as e:
+#             logg.error(e)
+
+#     seq_proj = (
+#         model.target_projector(target_featurizer(str(seq.seq)).cuda())
+#         .cpu()
+#         .numpy()
+#     )
+
+print("=====")
+sequence_string = str(seq.seq)
+print(f"Sequence being featurized: {sequence_string}")
+print("=====")
+
 with torch.set_grad_enabled(False):
     for m in tqdm(actives):
         m_emb = drug_featurizer(Chem.MolToSmiles(m)).cuda()
-        # m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
-        m_proj = model.mol_projector(m_emb).detach().cpu().numpy()
+        m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
         active_projections.append(m_proj)
     for m in tqdm(decoys):
         try:
             m_emb = drug_featurizer(Chem.MolToSmiles(m)).cuda()
-            # m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
-            m_proj = model.mol_projector(m_emb).detach().cpu().numpy()
+            m_proj = model.drug_projector(m_emb).detach().cpu().numpy()
             decoy_projections.append(m_proj)
         except Exception as e:
             logg.error(e)
-    try:
-        seq_proj = (
-            # model.target_projector(target_featurizer(str(seq.seq)).cuda())
-            model.prot_projector(target_featurizer(str(seq.seq)).cuda())
-            .cpu()
-            .numpy()
-        )
-    except KeyError as e:
-        logg.error(e)
-        logg.debug(str(seq))
-        sys.exit(1)
+    seq_proj = (
+        model.target_projector(target_featurizer(sequence_string).cuda())
+        .cpu()
+        .numpy()
+    )
 
 # Evaluate Distributions
 cosine_sim = CosineSimilarity(dim=0)
@@ -164,9 +177,14 @@ with open(f"{outdir}/DUDe_{target}_{model_name}_pval.txt", "w+") as f:
     f.write(f"{target}\t{stat}\t{pvalue}\n")
 df.to_csv(f"{outdir}/DUDe_{target}_{model_name}_scores.csv")
 
+palette = {
+    "Active": sns.color_palette()[0],
+    "Decoy": "lightgrey",
+}
+
 sns.set(style="whitegrid", font_scale=3)
 plt.figure(figsize=(15, 15), dpi=100)
-sns.violinplot(data=df, x="label", y="scores")
+sns.violinplot(data=df, x="label", y="scores", palette=palette)
 plt.title(f"{target} Predicted Scores (p={pvalue})")
 plt.xlabel("Molecule")
 plt.ylabel("Predicted Score")
@@ -178,7 +196,7 @@ plt.savefig(
 )
 # plt.show()
 
-sns.displot(data=df, x="scores", hue="label")
+sns.displot(data=df, x="scores", hue="label", palette=palette)
 plt.title(f"{target} Predicted Scores (p={pvalue})")
 plt.savefig(
     f"{outdir}/DUDe_{target}_{model_name}_displot.svg", bbox_inches="tight"
@@ -187,28 +205,36 @@ plt.savefig(
 
 # Plot TSNE of projections
 all_projections = np.concatenate(
-    [active_projections, decoy_projections, [seq_proj]], axis=0
+    [decoy_projections, active_projections, [seq_proj]], axis=0
 )
 project_tsne = TSNE(
     metric="cosine", n_jobs=32, random_state=61998
 ).fit_transform(all_projections)
 
 hue = (
-    ["Active"] * len(active_projections)
-    + ["Decoy"] * len(decoy_projections)
+    ["Decoy"] * len(decoy_projections)
+    + ["Active"] * len(active_projections)
     + ["Target"]
 )
-size = [30] * len(active_projections) + [30] * len(decoy_projections) + [1000]
+size = [30] * len(decoy_projections) + [30] * len(active_projections) + [1000]
+palette = [
+    "lightgrey",
+    sns.color_palette()[0],
+    sns.color_palette()[2],
+]
 
 sns.set(style="whitegrid", font_scale=3)
 plt.figure(figsize=(15, 15), dpi=100)
 sns.scatterplot(
-    x=project_tsne[:, 0], y=project_tsne[:, 1], hue=hue, s=size, legend=False
+    x=project_tsne[:, 0],
+    y=project_tsne[:, 1],
+    hue=hue,
+    s=size,
+    legend=False,
+    palette=palette,
 )
-# plt.title(f"{target} T-SNE")
 plt.xlabel("T-SNE 1")
 plt.ylabel("T-SNE 2")
-# plt.legend()
 sns.despine()
 plt.savefig(
     f"{outdir}/DUDe_{target}_{model_name}_tsne.svg", bbox_inches="tight"
