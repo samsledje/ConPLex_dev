@@ -41,9 +41,9 @@ logg = get_logger()
 
 parser = ArgumentParser(description="PLM_DTI Training.")
 parser.add_argument(
-    "--exp-id", required=True, help="Experiment ID", dest="experiment_id"
+    "--exp-id", required=True, help="Experiment ID", dest="experiment_id", default="tmp"
 )
-parser.add_argument("--config", required=True, help="YAML config file")
+parser.add_argument("--config", required=True, help="YAML config file", default="configs/default_config.yaml")
 
 parser.add_argument(
     "--wandb-proj",
