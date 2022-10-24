@@ -10,9 +10,8 @@ from dscript.pretrained import get_pretrained
 
 logg = get_logger()
 
-MODEL_CACHE_DIR = Path(
-    "/afs/csail.mit.edu/u/s/samsl/Work/Adapting_PLM_DTI/models"
-)
+MODEL_CACHE_DIR = Path(os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','..','models'))
+
 os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
 
 
