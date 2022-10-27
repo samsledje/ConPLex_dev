@@ -183,6 +183,7 @@ def main():
     # Logging
     if "log_file" not in config:
         config.log_file = None
+    os.makedirs(os.path.dirname(config.log_file), exist_ok=True)
     config_logger(
         config.log_file,
         "%(asctime)s [%(levelname)s] %(message)s",
