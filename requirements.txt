@@ -1,0 +1,3 @@
+dgl
+pysmiles
+mol2vec @ git+https://github.com/samoturk/mol2vec
