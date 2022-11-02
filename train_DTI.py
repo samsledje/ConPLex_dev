@@ -40,7 +40,7 @@ logg = get_logger()
 
 parser = ArgumentParser(description="PLM_DTI Training.")
 parser.add_argument(
-    "--exp-id", help="Experiment ID", dest="experiment_id", default="tmp"
+    "--exp-id", required=True, help="Experiment ID", dest="experiment_id"
 )
 parser.add_argument("--config", help="YAML config file", default="configs/default_config.yaml")
 
