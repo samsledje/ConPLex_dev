@@ -19,7 +19,6 @@ import wandb
 from omegaconf import OmegaConf
 from pathlib import Path
 
-from src import featurizers
 from src import architectures as model_types
 from src.data import (
     get_task_dir,
@@ -183,7 +182,8 @@ def main():
     # Logging
     if "log_file" not in config:
         config.log_file = None
-    os.makedirs(os.path.dirname(config.log_file), exist_ok=True)
+    else:
+        os.makedirs(Path(config.log_file).parent, exist_ok=True)
     config_logger(
         config.log_file,
         "%(asctime)s [%(levelname)s] %(message)s",
