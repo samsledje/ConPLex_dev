@@ -19,7 +19,6 @@ import wandb
 from omegaconf import OmegaConf
 from pathlib import Path
 
-from src import featurizers
 from src import architectures as model_types
 from src.data import (
     get_task_dir,
@@ -44,7 +43,7 @@ parser = ArgumentParser(description="PLM_DTI Training.")
 parser.add_argument(
     "--exp-id", required=True, help="Experiment ID", dest="experiment_id"
 )
-parser.add_argument("--config", required=True, help="YAML config file")
+parser.add_argument("--config", help="YAML config file", default="configs/default_config.yaml")
 
 parser.add_argument(
     "--wandb-proj",
@@ -183,6 +182,8 @@ def main():
     # Logging
     if "log_file" not in config:
         config.log_file = None
+    else:
+        os.makedirs(Path(config.log_file).parent, exist_ok=True)
     config_logger(
         config.log_file,
         "%(asctime)s [%(levelname)s] %(message)s",
