@@ -34,8 +34,9 @@ from src.utils import (
     get_logger,
     get_featurizer,
     sigmoid_cosine_distance_p,
-    MarginScheduledLossFunction,
 )
+
+from src.margin import MarginScheduledLossFunction
 
 logg = get_logger()
 
@@ -63,7 +64,6 @@ parser.add_argument(
     type=str,
     help="Task name. Could be biosnap, bindingdb, davis, biosnap_prot, biosnap_mol.",
 )
-parser.add_argument("--contrastive", action="store_true")
 
 parser.add_argument(
     "--drug-featurizer", help="Drug featurizer", dest="drug_featurizer"
@@ -307,7 +307,10 @@ def main():
 
     if config.contrastive:
         contrastive_loss_fct = MarginScheduledLossFunction(
-            0.25, 0.25, config.epochs
+            M_0=config.margin_max,
+            N_epoch=config.epochs,
+            N_restart=config.margin_t0,
+            update_fn=config.margin_fn,
         )
         opt_contrastive = torch.optim.AdamW(model.parameters(), lr=config.clr)
         lr_scheduler_contrastive = (
@@ -346,6 +349,7 @@ def main():
 
     # Initialize wandb
     do_wandb = "wandb_proj" in config
+    wandb_save = config.wandb_save
     if do_wandb:
         logg.info(f"Initializing wandb project {config.wandb_proj}")
         wandb.init(
@@ -495,7 +499,7 @@ def main():
                     )
                     logg.info(f"Saving checkpoint model to {model_save_path}")
 
-                    if do_wandb:
+                    if do_wandb and wandb_save:
                         art = wandb.Artifact(
                             f"dti-{config.experiment_id}", type="model"
                         )
@@ -544,7 +548,7 @@ def main():
             )
             logg.info(f"Saving final model to {model_save_path}")
 
-            if do_wandb:
+            if do_wandb and wandb_save:
                 art = wandb.Artifact(
                     f"dti-{config.experiment_id}", type="model"
                 )

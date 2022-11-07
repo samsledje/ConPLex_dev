@@ -114,7 +114,7 @@ class GoldmanCPI(nn.Module):
         latent_dimension=100,
         latent_activation=nn.ReLU,
         latent_distance="Cosine",
-        model_dropout=0.1,
+        model_dropout=0.2,
         classify=True,
     ):
         super().__init__()

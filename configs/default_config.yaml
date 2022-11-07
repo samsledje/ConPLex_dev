@@ -19,11 +19,14 @@ lr_t0: 10
 contrastive: True
 clr: 1e-5
 clr_t0: 10
+margin_fn: 'tanh_decay'
+margin_max: 0.25
+margin_t0: 10
 
 replicate: 0
 device: 5
 verbosity: 3
 
-wandb_proj: FinalRuns
-log_file: ./logs/production_bdb.log
+wandb_proj: MarginAblation
+log_file: ./logs/margin_tanhdecay.log
 model_save_dir: ./best_models

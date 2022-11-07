@@ -20,3 +20,4 @@ dataset/EnzPred
 
 # Large files
 dataset/DUDe/full.tsv
+large_scale_run.tsv
