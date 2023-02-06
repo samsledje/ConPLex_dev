@@ -129,8 +129,8 @@ class Featurizer:
                 seq_h5 = sanitize_string(seq)
                 if seq_h5 in h5fi:
                     logg.warning(f"{seq} already in h5file")
-                dset = h5fi.require_dataset(seq_h5, (self._shape,), np.float32)
                 feats = self.transform(seq)
+                dset = h5fi.require_dataset(seq_h5, feats.shape, np.float32)
                 dset[:] = feats.cpu().numpy()
 
     def preload(
@@ -210,10 +210,10 @@ class ConcatFeaturizer(Featurizer):
             if not featurizer.path.exists():
                 featurizer.write_to_disk(seq_list)
 
-    def preload(self, seq_list: T.List[str]) -> None:
+    def preload(self, seq_list: T.List[str], write_first: bool = True) -> None:
         for f_name in self._featurizer_names:
             featurizer = self._cuda_registry[f_name][0]
-            featurizer.preload(seq_list)
+            featurizer.preload(seq_list, write_first=write_first)
 
 
 ###################

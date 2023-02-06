@@ -1,6 +1,9 @@
 import sys
 import os
 import torch
+import hashlib
+import pickle as pk
+import typing as T
 from pathlib import Path
 from .base import Featurizer
 from ..utils import get_logger
@@ -10,7 +13,15 @@ from dscript.pretrained import get_pretrained
 
 logg = get_logger()
 
-MODEL_CACHE_DIR = Path(os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','..','models'))
+MODEL_CACHE_DIR = Path(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "models"
+    )
+)
+FOLDSEEK_DEFAULT_PATH = Path(
+    "/afs/csail.mit.edu/u/r/rsingh/work/corals/data-scratch1/ConPLex_foldseek_embeddings/r1_foldseekrep_encoding.p"
+)
+FOLDSEEK_MISSING_IDX = 20
 
 os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
 
@@ -69,13 +80,14 @@ class ESMFeaturizer(Featurizer):
 
 
 class ProseFeaturizer(Featurizer):
-    def __init__(self, save_dir: Path = Path().absolute()):
+    def __init__(self, save_dir: Path = Path().absolute(), per_tok=False):
         super().__init__("Prose", 6165, save_dir)
 
         from prose.alphabets import Uniprot21
         from prose.models.multitask import ProSEMT
 
         self._max_len = 800
+        self.per_tok = per_tok
         self._prose_model = ProSEMT.load_pretrained(
             path=f"{MODEL_CACHE_DIR}/prose_mt_3x1024.sav"
         )
@@ -97,16 +109,19 @@ class ProseFeaturizer(Featurizer):
         z = self._cuda_registry["model"][0].transform(x)
         z = z.squeeze(0)
 
-        return z.mean(axis=0)
+        if self.per_tok:
+            return z
+        return z.mean(0)
 
 
 class ProtBertFeaturizer(Featurizer):
-    def __init__(self, save_dir: Path = Path().absolute()):
+    def __init__(self, save_dir: Path = Path().absolute(), per_tok=False):
         super().__init__("ProtBert", 1024, save_dir)
 
         from transformers import AutoTokenizer, AutoModel, pipeline
 
         self._max_len = 1024
+        self.per_tok = per_tok
 
         self._protbert_tokenizer = AutoTokenizer.from_pretrained(
             "Rostlab/prot_bert",
@@ -160,14 +175,17 @@ class ProtBertFeaturizer(Featurizer):
         end_Idx = seq_len + 1
         feats = embedding.squeeze()[start_Idx:end_Idx]
 
+        if self.per_tok:
+            return feats
         return feats.mean(0)
 
 
 class ProtT5XLUniref50Featurizer(Featurizer):
-    def __init__(self, save_dir: Path = Path().absolute()):
+    def __init__(self, save_dir: Path = Path().absolute(), per_tok=False):
         super().__init__("ProtT5XLUniref50", 1024, save_dir)
 
         self._max_len = 1024
+        self.per_tok = per_tok
 
         (
             self._protbert_model,
@@ -309,7 +327,7 @@ class DSCRIPTFeaturizer(Featurizer):
         model.use_cuda = device.type == "cuda"
         return model
 
-    def _transform(self, seq):
+    def _transform(self, seq: str):
         if len(seq) > self._max_len:
             seq = seq[: self._max_len]
 
@@ -318,3 +336,45 @@ class DSCRIPTFeaturizer(Featurizer):
             lm_emb = lm_emb.to(self.device)
             ds_emb = self._cuda_registry["model"][0].embedding(lm_emb)
             return ds_emb.mean(axis=1).squeeze()
+
+
+class FoldSeekFeaturizer(Featurizer):
+    def __init__(
+        self,
+        save_dir: Path = Path().absolute(),
+        foldseek_pickle_path: T.Optional[Path] = None,
+    ):
+        super().__init__("FoldSeek", 22, save_dir)
+
+        self._max_len = None
+
+        if foldseek_pickle_path is not None:
+            self._foldseek_pickle_path = foldseek_pickle_path
+        else:
+            self._foldseek_pickle_path = FOLDSEEK_DEFAULT_PATH
+
+        self.pk_fs_dict = {}
+        with open(self._foldseek_pickle_path, "rb") as pk_fi:
+            fs_np_arrays = pk.load(pk_fi)
+        for fs_tuple in fs_np_arrays:
+            key, afkey, embedding = fs_tuple
+            key_hash = key.split("_")[-1]
+            self.pk_fs_dict[key_hash] = torch.from_numpy(embedding)
+
+    @staticmethod
+    def _md5_hex_hash(seq: str):
+        return hashlib.md5(seq.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _default_missing_foldseek_embedding(seq):
+        seqlen = len(seq)
+        return FOLDSEEK_MISSING_IDX * torch.ones(seqlen)
+
+    def _transform(self, seq: str):
+
+        seq_hash = FoldSeekFeaturizer._md5_hex_hash(seq)
+        fs_embedding = self.pk_fs_dict.setdefault(
+            seq_hash,
+            FoldSeekFeaturizer._default_missing_foldseek_embedding(seq),
+        )
+        return fs_embedding

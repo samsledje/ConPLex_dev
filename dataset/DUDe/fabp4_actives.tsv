@@ -1,10 +1,11 @@
 CHEMBL8659	CCCCCCCC/C=C\CCCCCCCC(=O)[O-]
 CHEMBL82293	CCCCCCCCCCCCCCCC(=O)[O-]
 CHEMBL1077990	COC(=O)c1sc(-c2cccs2)cc1NC(=O)/C=C/C(=O)[O-]
-CHEMBL378857	O=C([O-])C(O)c1cccc(OCc2ccccc2Cl)c1OCc1ccccc1Cl
+CHEMBL378857	O=C([O-])[C@@H](O)c1cccc(OCc2ccccc2Cl)c1OCc1ccccc1Cl
 CHEMBL247920	CCc1c(-c2ccccc2)c(-c2ccccc2)nn1-c1ccccc1-c1cccc(OCC(=O)[O-])c1
 CHEMBL394966	O=C([O-])COc1cccc(-c2ccccc2-c2cc(-c3ccccc3)c(-c3ccccc3)[nH]2)c1
-CHEMBL248120	CCc1c(-c2ccccc2)c(-c2ccccc2)nn1-c1ccccc1-c1cccc(C(O)C(=O)[O-])c1
+CHEMBL248120	CCc1c(-c2ccccc2)c(-c2ccccc2)nn1-c1ccccc1-c1cccc([C@@H](O)C(=O)[O-])c1
+CHEMBL248120	CCc1c(-c2ccccc2)c(-c2ccccc2)nn1-c1ccccc1-c1cccc([C@H](O)C(=O)[O-])c1
 CHEMBL459902	O=C([O-])c1cccc2c3c(n(Cc4ccccc4)c12)CCC3
 CHEMBL459901	O=C([O-])c1ccc2c3c(n(Cc4ccccc4)c2c1)CCCC3
 CHEMBL452596	O=C([O-])c1cccc2c3c(n(Cc4ccccc4)c12)CCCC3
@@ -29,7 +30,8 @@ CHEMBL184795	O=C([O-])CCCCn1c2ccccc2c2ccccc21
 CHEMBL285527	O=S(=O)([O-])c1cccc2cccc(Nc3ccccc3)c12
 CHEMBL245857	CC(C)Cn1c(-c2ccccc2-c2cccc(NCC(=O)[O-])c2)nc(-c2ccccc2)c1-c1ccccc1
 CHEMBL245857	CC(C)Cn1c(-c2ccccc2-c2cccc(NCC(=O)[O-])c2)[nH+]c(-c2ccccc2)c1-c1ccccc1
-CHEMBL437489	COC(C(=O)[O-])c1cccc(OCc2ccccc2Cl)c1OCc1ccccc1Cl
+CHEMBL437489	CO[C@@H](C(=O)[O-])c1cccc(OCc2ccccc2Cl)c1OCc1ccccc1Cl
+CHEMBL437489	CO[C@H](C(=O)[O-])c1cccc(OCc2ccccc2Cl)c1OCc1ccccc1Cl
 CHEMBL514666	COc1cccc(Cn2c3c(c4cccc(C(=O)[O-])c42)CCCC3)c1
 CHEMBL184136	COc1ccc(CSc2nc([O-])cc(C(F)(F)F)n2)cc1
 CHEMBL394440	CCc1c(-c2ccccc2)c(-c2ccccc2)nn1-c1ccccc1-c1cccc(C(=O)[O-])c1

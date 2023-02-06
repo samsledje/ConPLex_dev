@@ -15,9 +15,11 @@ dataset/TDC/dti_dg_group/
 dataset/EnzPred
 
 # File Types
-**.pk
-**.h5
+**/**.pk
+**/**.h5
+**/**.jupyterlab-workspace
 
 # Large files
 dataset/DUDe/full.tsv
+dataset/DUDe/full_OLD.tsv
 large_scale_run.tsv

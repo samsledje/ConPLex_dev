@@ -19,6 +19,7 @@ from torch.nn.utils.rnn import pad_sequence
 from tdc.benchmark_group import dti_dg_group
 
 from .featurizers import Featurizer
+from .featurizers.protein import FOLDSEEK_MISSING_IDX
 from .utils import get_logger
 from pathlib import Path
 import typing as T
@@ -59,20 +60,51 @@ def drug_target_collate_fn(
     """
     Collate function for PyTorch data loader -- turn a batch of triplets into a triplet of batches
 
+    If target embeddings are not all the same length, it will zero pad them
+    This is to account for differences in length from FoldSeek embeddings
+
     :param args: Batch of training samples with molecule, protein, and affinity
     :type args: Iterable[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
     :return: Create a batch of examples
     :rtype: T.Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
     """
-    memb = [a[0] for a in args]
-    pemb = [a[1] for a in args]
+    d_emb = [a[0] for a in args]
+    t_emb = [a[1] for a in args]
     labs = [a[2] for a in args]
 
-    proteins = torch.stack(pemb, 0)
-    molecules = torch.stack(memb, 0)
-    affinities = torch.stack(labs, 0)
+    drugs = torch.stack(d_emb, 0)
+    targets = pad_sequence(
+        t_emb, batch_first=True, padding_value=FOLDSEEK_MISSING_IDX
+    )
+    labels = torch.stack(labs, 0)
 
-    return molecules, proteins, affinities
+    return drugs, targets, labels
+
+
+def contrastive_collate_fn(
+    args: T.Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+):
+    """
+    Collate function for PyTorch data loader -- turn a batch of triplets into a triplet of batches
+
+    Specific collate function for contrastive dataloader
+
+    :param args: Batch of training samples with anchor, positive, negative
+    :type args: Iterable[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
+    :return: Create a batch of examples
+    :rtype: T.Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+    """
+    anchor_emb = [a[0] for a in args]
+    pos_emb = [a[1] for a in args]
+    neg_emb = [a[2] for a in args]
+
+    anchors = pad_sequence(
+        anchor_emb, batch_first=True, padding_value=FOLDSEEK_MISSING_IDX
+    )
+    positives = torch.stack(pos_emb, 0)
+    negatives = torch.stack(neg_emb, 0)
+
+    return anchors, positives, negatives
 
 
 def make_contrastive(
@@ -645,7 +677,7 @@ class DUDEDataModule(pl.LightningDataModule):
             "batch_size": batch_size,
             "shuffle": shuffle,
             "num_workers": num_workers,
-            "collate_fn": drug_target_collate_fn,
+            "collate_fn": contrastive_collate_fn,
         }
 
         self._csv_kwargs = {
@@ -728,10 +760,10 @@ class DUDEDataModule(pl.LightningDataModule):
             self.drug_featurizer.cuda(self._device)
             self.target_featurizer.cuda(self._device)
 
-        self.drug_featurizer.preload(all_drugs, write_first=False)
+        self.drug_featurizer.preload(all_drugs, write_first=True)
         self.drug_featurizer.cpu()
 
-        self.target_featurizer.preload(all_targets, write_first=False)
+        self.target_featurizer.preload(all_targets, write_first=True)
         self.target_featurizer.cpu()
 
         if stage == "fit" or stage is None:

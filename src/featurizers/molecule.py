@@ -45,9 +45,12 @@ class Mol2VecFeaturizer(Featurizer):
     def _transform(self, smile: str) -> torch.Tensor:
 
         molecule = Chem.MolFromSmiles(smile)
-        sentence = MolSentence(mol2alt_sentence(molecule, self._radius))
-        wide_vector = sentences2vec(sentence, self._model, unseen="UNK")
-        feats = wide_vector.mean(axis=0)
+        try:
+            sentence = MolSentence(mol2alt_sentence(molecule, self._radius))
+            wide_vector = sentences2vec(sentence, self._model, unseen="UNK")
+            feats = wide_vector.mean(axis=0)
+        except Exception:
+            feats = np.zeros(self.shape)
 
         feats = torch.from_numpy(feats).squeeze().float()
         return feats
@@ -307,6 +310,9 @@ class MolRFeaturizer(Featurizer):
 
     def _transform(self, smile: str) -> torch.Tensor:
         smile = canonicalize(smile)
-        embeddings, _ = self._molE_featurizer.transform([smile])
+        try:
+            embeddings, _ = self._molE_featurizer.transform([smile])
+        except NotImplementedError:
+            embeddings = np.zeros(self.shape)
         tens = torch.from_numpy(embeddings).squeeze().float()
         return tens

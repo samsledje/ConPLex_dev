@@ -43,7 +43,9 @@ parser = ArgumentParser(description="PLM_DTI Training.")
 parser.add_argument(
     "--exp-id", required=True, help="Experiment ID", dest="experiment_id"
 )
-parser.add_argument("--config", help="YAML config file", default="configs/default_config.yaml")
+parser.add_argument(
+    "--config", help="YAML config file", default="configs/default_config.yaml"
+)
 
 parser.add_argument(
     "--wandb-proj",
@@ -143,8 +145,7 @@ def step(model, batch, device=None):
     if device is None:
         device = torch.device("cpu")
 
-    drug, target, label = batch
-
+    drug, target, label = batch  # target is (D + N_pool)
     pred = model(drug.to(device), target.to(device))
     label = Variable(torch.from_numpy(np.array(label)).float()).to(device)
     return pred, label
@@ -176,7 +177,7 @@ def main():
     arg_overrides = {k: v for k, v in vars(args).items() if v is not None}
     config.update(arg_overrides)
 
-    save_dir = config.get("model_save_dir", ".")
+    save_dir = f'{config.get("model_save_dir", ".")}/{config.experiment_id}'
     os.makedirs(save_dir, exist_ok=True)
 
     # Logging
@@ -262,6 +263,7 @@ def main():
         dude_drug_featurizer = get_featurizer(
             config.drug_featurizer, save_dir=get_task_dir("DUDe")
         )
+
         dude_target_featurizer = get_featurizer(
             config.target_featurizer, save_dir=get_task_dir("DUDe")
         )
@@ -349,8 +351,7 @@ def main():
         }
 
     # Initialize wandb
-    do_wandb = "wandb_proj" in config
-    wandb_save = config.wandb_save
+    do_wandb = config.wandb_save and ("wandb_proj" in config)
     if do_wandb:
         logg.info(f"Initializing wandb project {config.wandb_proj}")
         wandb.init(
@@ -376,7 +377,9 @@ def main():
         for i, batch in tqdm(
             enumerate(training_generator), total=len(training_generator)
         ):
-            pred, label = step(model, batch, device)
+            pred, label = step(
+                model, batch, device
+            )  # batch is (2048, 1024, 1)
 
             loss = loss_fct(pred, label)
 
@@ -500,7 +503,7 @@ def main():
                     )
                     logg.info(f"Saving checkpoint model to {model_save_path}")
 
-                    if do_wandb and wandb_save:
+                    if do_wandb:
                         art = wandb.Artifact(
                             f"dti-{config.experiment_id}", type="model"
                         )
@@ -549,7 +552,7 @@ def main():
             )
             logg.info(f"Saving final model to {model_save_path}")
 
-            if do_wandb and wandb_save:
+            if do_wandb:
                 art = wandb.Artifact(
                     f"dti-{config.experiment_id}", type="model"
                 )
