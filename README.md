@@ -28,5 +28,4 @@ This repository is a work in progress. Please submit an issue or email samsl@mit
 
 ### Reference
 
-- Described in [NeurIPS MLSB 2021](https://www.mlsb.io/papers_2021/MLSB2021_Adapting_protein_language_models.pdf)
-- Based on code from [MolTrans](https://github.com/kexinhuang12345/MolTrans)
+- Described in [NeurIPS MLSB 2021](https://www.mlsb.io/papers_2021/MLSB2021_Adapting_protein_language_models.pdf) and [NeurIPS MLSB 2022](https://www.biorxiv.org/content/10.1101/2022.11.03.515086v1). Currently under review in PNAS.
