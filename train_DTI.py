@@ -111,7 +111,10 @@ def test(model, data_generator, metrics, device=None, classify=True):
     metric_dict = {}
 
     for k, met_class in metrics.items():
-        met_instance = met_class()
+        if classify:
+            met_instance = met_class(task="binary")
+        else:
+            met_instance = met_class()
         met_instance.to(device)
         met_instance.reset()
         metric_dict[k] = met_instance
