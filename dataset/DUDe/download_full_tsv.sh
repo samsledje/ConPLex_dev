@@ -1,1 +1,1 @@
-wget http://cb.csail.mit.edu/cb/conplex/full.tsv
+wget http://cb.csail.mit.edu/cb/conplex/data/full.tsv
