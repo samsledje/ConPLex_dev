@@ -1,6 +1,6 @@
 # Adapting Protein Language Models for Rapid DTI Prediction
 
-This repository is a work in progress. Please submit an issue or email samsl@mit.edu with any questions.
+This repository documents the code used to generate the results for our [PNAS](https://www.pnas.org/doi/10.1073/pnas.2220778120) article. The updated package, which is continuously being developed, can be found at [this repository](https://github.com/samsledje/ConPLex). Please submit an issue or email samsl@mit.edu with any questions.
 
 ### Sample Usage
 
@@ -28,4 +28,5 @@ This repository is a work in progress. Please submit an issue or email samsl@mit
 
 ### Reference
 
-- Described in [NeurIPS MLSB 2021](https://www.mlsb.io/papers_2021/MLSB2021_Adapting_protein_language_models.pdf) and [NeurIPS MLSB 2022](https://www.biorxiv.org/content/10.1101/2022.11.03.515086v1), and on [bioRxiv](https://www.biorxiv.org/content/10.1101/2022.12.06.519374v1). Currently under review in PNAS.
+- Described in [our PNAS paper](https://www.pnas.org/doi/10.1073/pnas.2220778120)
+- Previously appeared in [NeurIPS MLSB 2021](https://www.mlsb.io/papers_2021/MLSB2021_Adapting_protein_language_models.pdf) and [NeurIPS MLSB 2022](https://www.biorxiv.org/content/10.1101/2022.11.03.515086v1), and on [bioRxiv](https://www.biorxiv.org/content/10.1101/2022.12.06.519374v1).
