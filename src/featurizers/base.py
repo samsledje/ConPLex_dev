@@ -147,8 +147,8 @@ class Featurizer:
         if self._save_path.exists():
             with h5py.File(self._save_path, "r") as h5fi:
                 for seq in tqdm(seq_list, disable=not verbose, desc=self.name):
-                    if seq in h5fi:
-                        seq_h5 = sanitize_string(seq)
+                    seq_h5 = sanitize_string(seq)
+                    if seq_h5 in h5fi:
                         feats = torch.from_numpy(h5fi[seq_h5][:])
                     else:
                         feats = self.transform(seq)
